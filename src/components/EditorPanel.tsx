@@ -1,32 +1,48 @@
+/* src/components/EditorPanel.tsx */
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useSplit } from "@/src/components/SplitProvider";
 import { calcReceipt } from "@/src/lib/calc";
+import type { PaymentMethod } from "@/src/lib/types";
 
 type TabKey = "people" | "items" | "adjustments" | "payments";
 
-/** Color system:
- * - Primary: black (active tab)
- * - Accent: teal (add buttons, highlights)
- * - Danger: red (remove, warnings)
- */
-const cls = {
-  tabActive:
-    "border-zinc-900 bg-zinc-900 text-white shadow-[0_0_0_3px_rgba(0,0,0,0.08)] dark:border-white dark:bg-white dark:text-zinc-900 dark:shadow-[0_0_0_3px_rgba(255,255,255,0.08)]",
-  tabIdle:
-    "border-zinc-200 bg-white hover:bg-zinc-100 dark:border-white/10 dark:bg-zinc-950/40 dark:hover:bg-white/10",
-  accentBtn:
-    "border-teal-600/30 bg-teal-500/10 text-teal-800 shadow-sm hover:bg-teal-500/15 dark:border-teal-400/30 dark:bg-teal-400/10 dark:text-teal-100 dark:hover:bg-teal-400/15",
-  dangerBtn:
-    "border-red-600/25 bg-red-500/10 text-red-700 hover:bg-red-500/15 dark:border-red-400/25 dark:bg-red-400/10 dark:text-red-200 dark:hover:bg-red-400/15",
-  subtleCard:
-    "rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-sm dark:border-white/10 dark:bg-zinc-950/40",
-};
+const inputClass =
+  "w-full rounded-2xl border border-zinc-300 bg-white px-4 py-3 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 dark:border-white/10 dark:bg-zinc-950/40 dark:text-zinc-50 dark:focus:border-teal-400 dark:focus:ring-teal-400/20";
 
-export default function EditorPanel() {
+const smallInputClass =
+  "w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 dark:border-white/10 dark:bg-zinc-950/40 dark:text-zinc-50 dark:focus:border-teal-400 dark:focus:ring-teal-400/20";
+
+const primaryButtonClass =
+  "rounded-2xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50";
+
+const ghostButtonClass =
+  "rounded-2xl border border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-100 dark:hover:bg-white/10";
+
+const dangerButtonClass =
+  "rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-100 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-200 dark:hover:bg-red-500/15";
+
+function peso(n: number) {
+  return `₱${(Number(n) || 0).toFixed(2)}`;
+}
+
+function progressPercent(input: {
+  people: number;
+  items: number;
+  payments: number;
+  totalDue: number;
+}) {
+  let score = 0;
+  if (input.people > 0) score += 30;
+  if (input.items > 0 && input.totalDue > 0) score += 40;
+  if (input.payments > 0) score += 30;
+  return score;
+}
+
+export default function EditorPanel({ compact = false }: { compact?: boolean }) {
   const {
     session,
 
@@ -57,7 +73,7 @@ export default function EditorPanel() {
     resetCustomChangeAllocations,
   } = useSplit();
 
-  const [tab, setTab] = useState<TabKey>("items");
+  const [tab, setTab] = useState<TabKey>("people");
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -67,701 +83,964 @@ export default function EditorPanel() {
       setTab(next);
     };
 
+    const openHandler = () => {
+      document.getElementById("editor-panel")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    };
+
     window.addEventListener("rs:setTab", handler as EventListener);
-    return () => window.removeEventListener("rs:setTab", handler as EventListener);
+    window.addEventListener("rs:openEditor", openHandler as EventListener);
+
+    return () => {
+      window.removeEventListener("rs:setTab", handler as EventListener);
+      window.removeEventListener("rs:openEditor", openHandler as EventListener);
+    };
   }, []);
-
-  // Mobile drawer state
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [mobileSize, setMobileSize] = useState<"half" | "full">("half");
-
-
-  // Allow guided flow to open editor on mobile
-  useEffect(() => {
-    const onOpen = () => setMobileOpen(true);
-    window.addEventListener("rs:openEditor", onOpen as EventListener);
-    return () => window.removeEventListener("rs:openEditor", onOpen as EventListener);
-  }, []);
-
-  useEffect(() => {
-  if (mobileOpen) setMobileSize("half");
-}, [mobileOpen]);
-
-
-  const tabs = useMemo(
-    () => [
-      { key: "people" as const, label: "People" },
-      { key: "items" as const, label: "Items" },
-      { key: "adjustments" as const, label: "Adjustments" },
-      { key: "payments" as const, label: "Payments" },
-    ],
-    []
-  );
 
   const r = calcReceipt(session);
 
-  const totalPaid = (session.payments ?? []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const tabs = useMemo(
+    () => [
+      {
+        key: "people" as const,
+        label: "People",
+        count: session.people.length,
+      },
+      {
+        key: "items" as const,
+        label: "Items",
+        count: session.items.length,
+      },
+      {
+        key: "adjustments" as const,
+        label: "Details",
+        count:
+          Number(session.charges?.serviceAmount ?? 0) > 0 ||
+          Number(session.charges?.vatAmount ?? 0) > 0 ||
+          Number(session.discountOverrides?.lessVatExempt ?? 0) > 0 ||
+          Number(session.discountOverrides?.lessPwdDiscount ?? 0) > 0
+            ? 1
+            : 0,
+      },
+      {
+        key: "payments" as const,
+        label: "Payments",
+        count: session.payments.length,
+      },
+    ],
+    [
+      session.people.length,
+      session.items.length,
+      session.payments.length,
+      session.charges?.serviceAmount,
+      session.charges?.vatAmount,
+      session.discountOverrides?.lessVatExempt,
+      session.discountOverrides?.lessPwdDiscount,
+    ]
+  );
+
+  const totalPaid = (session.payments ?? []).reduce(
+    (sum, payment) => sum + (Number(payment.amount) || 0),
+    0
+  );
+
   const changeTotal = Math.max(0, totalPaid - r.totalDue);
+  const missing = Math.max(0, r.totalDue - totalPaid);
 
   const mode = session.changeHandling?.mode ?? "auto";
-  const receiverId = session.changeHandling?.receiverId ?? session.people[0]?.id;
+  const receiverId = session.changeHandling?.receiverId ?? session.people[0]?.id ?? "";
   const customAlloc = session.changeHandling?.allocations ?? {};
 
-  // ✅ shared body (used by desktop panel + mobile drawer)
-  const PanelBody = (
-    <div className="flex max-h-[calc(100vh-6rem)] flex-col">
-      <div className="mb-3">
-        <div className="text-sm font-semibold">Editor</div>
-        <div className="text-xs text-zinc-500 dark:text-zinc-400">Fill in only what you need.</div>
-      </div>
+  const progress = progressPercent({
+    people: session.people.length,
+    items: session.items.length,
+    payments: session.payments.length,
+    totalDue: r.totalDue,
+  });
 
-      {/* Tabs */}
-      <div className="sticky top-0 z-10 -mx-4 mb-4 border-b border-zinc-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-white/10 dark:bg-zinc-950/40">
-        <div className="flex flex-wrap gap-2">
-          {tabs.map((t) => {
-            const active = tab === t.key;
-            return (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                className={[
-                  "rounded-full border px-3 py-1.5 text-xs transition",
-                  active ? cls.tabActive : cls.tabIdle,
-                ].join(" ")}
-                type="button"
-              >
-                {t.label}
-              </button>
-            );
-          })}
+  const nextStep =
+    session.people.length === 0
+      ? {
+          title: "Add people",
+          body: "Start with everyone included in this split.",
+          tab: "people" as const,
+        }
+      : session.items.length === 0
+        ? {
+            title: "Add items",
+            body: "Add expenses or receipt rows next.",
+            tab: "items" as const,
+          }
+        : session.payments.length === 0
+          ? {
+              title: "Add payment",
+              body: "Add who paid the cashier or upfront amount.",
+              tab: "payments" as const,
+            }
+          : {
+              title: "Review settlement",
+              body: "Check who pays whom.",
+              tab: "payments" as const,
+            };
+
+  return (
+    <section
+      id="editor-panel"
+      className={[
+        "rounded-[1.75rem] border border-zinc-200 bg-white shadow-sm dark:border-white/10 dark:bg-white/[0.04]",
+        compact ? "p-3" : "p-4 sm:p-5",
+      ].join(" ")}
+    >
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <div className="text-base font-semibold text-zinc-900 dark:text-zinc-50">
+            Editor
+          </div>
+          <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400 sm:text-sm">
+            Fill only what applies.
+          </div>
+        </div>
+
+        <div className="rounded-full bg-teal-100 px-3 py-1 text-xs font-semibold text-teal-800 dark:bg-teal-500/10 dark:text-teal-100">
+          {peso(r.totalDue)}
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto pr-1">
-        {/* PEOPLE */}
-        {tab === "people" && (
-          <div className="space-y-3">
-            <HeaderRow title="People" actionLabel="+ Add" onAction={addPerson} />
-
-            <div className="space-y-2">
-              {session.people.map((p) => (
-                <div key={p.id} className="flex items-center gap-2">
-                  <input
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-200/60 dark:border-white/10 dark:bg-zinc-950/40 dark:focus:ring-teal-400/20"
-                    value={p.name}
-                    onChange={(e) => updatePerson(p.id, { name: e.target.value })}
-                    placeholder="Name"
-                  />
-                  <label className="flex items-center gap-2 whitespace-nowrap text-xs text-zinc-600 dark:text-zinc-300">
-                    <input
-                      type="checkbox"
-                      checked={!!p.isPWD}
-                      onChange={(e) => updatePerson(p.id, { isPWD: e.target.checked })}
-                    />
-                    PWD
-                  </label>
-                  <button
-                    className={[
-                      "grid h-10 w-10 place-items-center rounded-xl border text-xs transition",
-                      cls.dangerBtn,
-                    ].join(" ")}
-                    onClick={() => removePerson(p.id)}
-                    title="Remove"
-                    type="button"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
+      <div className="mb-3 rounded-[1.35rem] border border-teal-100 bg-teal-50 p-3 text-teal-900 dark:border-teal-500/20 dark:bg-teal-500/10 dark:text-teal-100">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wide text-teal-700 dark:text-teal-200">
+              Next step
             </div>
-
-            <Hint>PWD is used only when allocating manual deductions (scope = “Per PWD person”).</Hint>
-          </div>
-        )}
-
-        {/* ITEMS */}
-        {tab === "items" && (
-          <div className="space-y-3">
-            <HeaderRow title="Items" actionLabel="+ Add" onAction={addItem} />
-
-            <div className="space-y-3">
-              {session.items.map((it) => {
-                const lineTotal = (it.unitPrice || 0) * (it.qty || 0);
-
-                return (
-                  <details
-                    key={it.id}
-                    className="group rounded-2xl border border-zinc-200 bg-zinc-50 dark:border-white/10 dark:bg-zinc-950/40"
-                  >
-                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium">{it.name || "Unnamed item"}</div>
-                        <div className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-                          {it.qty} × ₱{(it.unitPrice || 0).toFixed(2)}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <div className="text-sm font-semibold">₱{lineTotal.toFixed(2)}</div>
-                        <div className="grid h-8 w-8 place-items-center rounded-xl border border-zinc-200 bg-white text-xs dark:border-white/10 dark:bg-zinc-950/40">
-                          <span className="transition group-open:rotate-90">›</span>
-                        </div>
-                      </div>
-                    </summary>
-
-                    <div className="border-t border-zinc-200 p-3 dark:border-white/10">
-                      <div className="flex items-center gap-2">
-                        <input
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-200/60 dark:border-white/10 dark:bg-zinc-950/40 dark:focus:ring-teal-400/20"
-                          value={it.name}
-                          onChange={(e) => updateItem(it.id, { name: e.target.value })}
-                          placeholder="Item name"
-                        />
-                        <button
-                          className={[
-                            "grid h-10 w-10 place-items-center rounded-xl border text-xs transition",
-                            cls.dangerBtn,
-                          ].join(" ")}
-                          onClick={() => removeItem(it.id)}
-                          title="Remove item"
-                          type="button"
-                        >
-                          ✕
-                        </button>
-                      </div>
-
-                      <div className="mt-2 grid grid-cols-3 gap-2">
-                        <Field label="Price">
-                          <DecimalInput
-                            value={it.unitPrice}
-                            onChangeNumber={(n) => updateItem(it.id, { unitPrice: n })}
-                            placeholder="0.00"
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none dark:border-white/10 dark:bg-zinc-950/40"
-                          />
-                        </Field>
-
-                        <Field label="Qty">
-                          <input
-                            type="number"
-                            step="1"
-                            inputMode="numeric"
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none dark:border-white/10 dark:bg-zinc-950/40"
-                            value={it.qty}
-                            onChange={(e) =>
-                              updateItem(it.id, { qty: Math.max(1, Number(e.target.value || 1)) })
-                            }
-                          />
-                        </Field>
-
-                        <Field label="Total">
-                          <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-zinc-950/40">
-                            ₱{lineTotal.toFixed(2)}
-                          </div>
-                        </Field>
-                      </div>
-
-                      <div className="mt-3">
-                        <div className="mb-2 text-xs font-medium text-zinc-600 dark:text-zinc-300">
-                          Shared by
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {session.people.map((p) => {
-                            const active = it.assignedPersonIds.includes(p.id);
-                            return (
-                              <button
-                                key={p.id}
-                                onClick={() => toggleItemPerson(it.id, p.id)}
-                                type="button"
-                                className={[
-                                  "rounded-full border px-3 py-1 text-xs transition",
-                                  active
-                                    ? "border-teal-600/35 bg-teal-500/10 text-teal-800 shadow-[0_0_0_3px_rgba(45,212,191,0.15)] dark:border-teal-400/30 dark:bg-teal-400/10 dark:text-teal-100"
-                                    : cls.tabIdle,
-                                ].join(" ")}
-                              >
-                                {p.name || "Unnamed"}
-                              </button>
-                            );
-                          })}
-                        </div>
-
-                        <div className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
-                          If none selected, item is treated as shared by everyone.
-                        </div>
-                      </div>
-                    </div>
-                  </details>
-                );
-              })}
+            <div className="mt-1 text-sm font-semibold">{nextStep.title}</div>
+            <div className="mt-0.5 text-xs leading-5 text-teal-800/80 dark:text-teal-100/75">
+              {nextStep.body}
             </div>
           </div>
-        )}
 
-        {/* ADJUSTMENTS */}
-        {tab === "adjustments" && (
-          <div className="space-y-3">
-            <HeaderRow title="Adjustments" />
+          <button
+            type="button"
+            onClick={() => setTab(nextStep.tab)}
+            className="shrink-0 rounded-2xl bg-white px-4 py-2 text-xs font-semibold text-teal-800 shadow-sm transition hover:bg-teal-50 dark:bg-teal-300 dark:text-teal-950 dark:hover:bg-teal-200"
+          >
+            Open
+          </button>
+        </div>
 
-            <Card title="Receipt header">
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <Field label="Group name">
-                  <input
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-200/60 dark:border-white/10 dark:bg-zinc-950/40 dark:focus:ring-teal-400/20"
-                    value={session.meta?.groupName ?? ""}
-                    onChange={(e) => setMeta({ groupName: e.target.value })}
-                    placeholder="e.g. Team Dinner"
-                  />
-                </Field>
+        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/70 dark:bg-white/10">
+          <div
+            className="h-full rounded-full bg-teal-600 transition-all dark:bg-teal-300"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      </div>
 
-                <Field label="Location">
-                  <input
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-200/60 dark:border-white/10 dark:bg-zinc-950/40 dark:focus:ring-teal-400/20"
-                    value={session.meta?.location ?? ""}
-                    onChange={(e) => setMeta({ location: e.target.value })}
-                    placeholder="e.g. BGC"
-                  />
-                </Field>
+      <div className="mb-4 grid grid-cols-4 gap-2">
+        {tabs.map((t) => {
+          const active = tab === t.key;
+
+          return (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTab(t.key)}
+              className={[
+                "rounded-2xl border px-2 py-2 text-center transition",
+                active
+                  ? "border-teal-600 bg-teal-600 text-white shadow-sm"
+                  : "border-zinc-200 bg-[#fbfbf8] text-zinc-600 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-zinc-300 dark:hover:bg-white/10",
+              ].join(" ")}
+            >
+              <div className="text-[11px] font-semibold sm:text-xs">{t.label}</div>
+              <div
+                className={[
+                  "mx-auto mt-1 w-fit rounded-full px-2 py-0.5 text-[10px] font-bold",
+                  active
+                    ? "bg-white/20 text-white"
+                    : "bg-zinc-200 text-zinc-600 dark:bg-white/10 dark:text-zinc-300",
+                ].join(" ")}
+              >
+                {t.count}
               </div>
-            </Card>
+            </button>
+          );
+        })}
+      </div>
 
-            <Card title="Charges (exact amounts)">
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <Field label="Service charge amount">
-                  <DecimalInput
-                    value={Number(session.charges.serviceAmount ?? 0)}
-                    onChangeNumber={(n) => setServiceAmount(n)}
-                    placeholder="0.00"
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none dark:border-white/10 dark:bg-zinc-950/40"
-                  />
-                </Field>
+      <div>
+        {tab === "people" ? (
+          <PeopleTab
+            people={session.people}
+            addPerson={addPerson}
+            updatePerson={updatePerson}
+            removePerson={removePerson}
+          />
+        ) : null}
 
-                <Field label="VAT amount">
-                  <DecimalInput
-                    value={Number(session.charges.vatAmount ?? 0)}
-                    onChangeNumber={(n) => setVatAmount(n)}
-                    placeholder="0.00"
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none dark:border-white/10 dark:bg-zinc-950/40"
-                  />
-                </Field>
-              </div>
+        {tab === "items" ? (
+          <ItemsTab
+            people={session.people}
+            items={session.items}
+            addItem={addItem}
+            updateItem={updateItem}
+            removeItem={removeItem}
+            toggleItemPerson={toggleItemPerson}
+          />
+        ) : null}
 
-              <Hint>Type exactly what the receipt shows.</Hint>
-            </Card>
+        {tab === "adjustments" ? (
+          <AdjustmentsTab
+            session={session}
+            totalDue={r.totalDue}
+            setMeta={setMeta}
+            setServiceAmount={setServiceAmount}
+            setVatAmount={setVatAmount}
+            setLessVatExempt={setLessVatExempt}
+            setLessPwdDiscount={setLessPwdDiscount}
+            setPwdScope={setPwdScope}
+          />
+        ) : null}
 
-            <Card title="Discounts (manual)">
-              <div className="mt-3">
-                <div className="mb-2 text-xs font-medium text-zinc-600 dark:text-zinc-300">PWD scope</div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setPwdScope("bill")}
-                    className={[
-                      "rounded-full border px-3 py-1 text-xs transition",
-                      (session as any).pwdScope === "bill" ? cls.tabActive : cls.tabIdle,
-                    ].join(" ")}
-                  >
-                    Whole bill
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPwdScope("person")}
-                    className={[
-                      "rounded-full border px-3 py-1 text-xs transition",
-                      (session as any).pwdScope === "person" ? cls.tabActive : cls.tabIdle,
-                    ].join(" ")}
-                  >
-                    Per PWD person
-                  </button>
-                  
+        {tab === "payments" ? (
+          <PaymentsTab
+            people={session.people}
+            payments={session.payments}
+            totalDue={r.totalDue}
+            totalPaid={totalPaid}
+            changeTotal={changeTotal}
+            missing={missing}
+            mode={mode}
+            receiverId={receiverId}
+            customAlloc={customAlloc}
+            addPayment={addPayment}
+            updatePayment={updatePayment}
+            removePayment={removePayment}
+            setChangeHandling={setChangeHandling}
+            setCustomChangeAllocation={setCustomChangeAllocation}
+            resetCustomChangeAllocations={resetCustomChangeAllocations}
+          />
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function PeopleTab({
+  people,
+  addPerson,
+  updatePerson,
+  removePerson,
+}: {
+  people: Array<{ id: string; name: string; isPWD?: boolean }>;
+  addPerson: () => void;
+  updatePerson: (id: string, patch: any) => void;
+  removePerson: (id: string) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <SectionHeader
+        title="People"
+        subtitle="Add everyone included in this split."
+        actionLabel="+ Add person"
+        onAction={addPerson}
+      />
+
+      {people.length === 0 ? (
+        <EmptyEditorState
+          icon="👥"
+          title="Start by adding people"
+          body="Names are needed before items and payments can be assigned."
+          actionLabel="+ Add first person"
+          onAction={addPerson}
+        />
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+          {people.map((person, index) => (
+            <div
+              key={person.id}
+              className="rounded-[1.35rem] border border-zinc-200 bg-[#fbfbf8] p-3 dark:border-white/10 dark:bg-white/5"
+            >
+              <div className="flex items-center gap-3">
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-teal-100 text-sm font-bold text-teal-800 dark:bg-teal-500/10 dark:text-teal-100">
+                  {index + 1}
                 </div>
-              </div>
 
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <Field label="LESS: VAT (PWD)">
-                  <DecimalInput
-                    value={(session as any).discountOverrides?.lessVatExempt ?? 0}
-                    onChangeNumber={(n) => setLessVatExempt(n)}
-                    placeholder="0.00"
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none dark:border-white/10 dark:bg-zinc-950/40"
-                  />
-                </Field>
+                <input
+                  className={inputClass}
+                  value={person.name}
+                  onChange={(e) => updatePerson(person.id, { name: e.target.value })}
+                  placeholder="Name"
+                />
 
-                <Field label="PWD discount">
-                  <DecimalInput
-                    value={(session as any).discountOverrides?.lessPwdDiscount ?? 0}
-                    onChangeNumber={(n) => setLessPwdDiscount(n)}
-                    placeholder="0.00"
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none dark:border-white/10 dark:bg-zinc-950/40"
-                  />
-                </Field>
-              </div>
-
-              <div className="mt-3 flex items-center gap-2">
                 <button
                   type="button"
-                  className={["rounded-xl border px-3 py-1.5 text-xs font-medium transition", cls.accentBtn].join(" ")}
-                  onClick={() => {
-                    setLessVatExempt(0);
-                    setLessPwdDiscount(0);
-                  }}
+                  className={dangerButtonClass}
+                  onClick={() => removePerson(person.id)}
+                  title="Remove"
                 >
-                  Reset to 0
+                  ✕
                 </button>
-
-                <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                  Use receipt values (e.g., Less Vat 55.61, PWD Disc 92.68).
-                </div>
               </div>
-            </Card>
 
-            <div className="rounded-2xl border border-zinc-200 bg-white p-3 text-xs dark:border-white/10 dark:bg-zinc-950/40">
-              <div className="flex justify-between">
-                <span className="text-zinc-500 dark:text-zinc-400">Total due (computed)</span>
-                <span className="font-semibold">₱{r.totalDue.toFixed(2)}</span>
+              <label className="mt-3 inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-600 dark:border-white/10 dark:bg-zinc-950/40 dark:text-zinc-300">
+                <input
+                  type="checkbox"
+                  checked={!!person.isPWD}
+                  onChange={(e) => updatePerson(person.id, { isPWD: e.target.checked })}
+                />
+                PWD / discount eligible
+              </label>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Hint>PWD is only used when you add manual discount amounts under Details.</Hint>
+    </div>
+  );
+}
+
+function ItemsTab({
+  people,
+  items,
+  addItem,
+  updateItem,
+  removeItem,
+  toggleItemPerson,
+}: {
+  people: Array<{ id: string; name: string }>;
+  items: Array<{
+    id: string;
+    name: string;
+    unitPrice: number;
+    qty: number;
+    assignedPersonIds: string[];
+  }>;
+  addItem: () => void;
+  updateItem: (id: string, patch: any) => void;
+  removeItem: (id: string) => void;
+  toggleItemPerson: (itemId: string, personId: string) => void;
+}) {
+  const [activeId, setActiveId] = useState("");
+
+  useEffect(() => {
+    if (items.length === 0) {
+      setActiveId("");
+      return;
+    }
+
+    const stillExists = items.some((item) => item.id === activeId);
+    if (!activeId || !stillExists) {
+      setActiveId(items[0].id);
+    }
+  }, [items, activeId]);
+
+  const activeItem = items.find((item) => item.id === activeId) ?? items[0];
+
+  function handleAddItem() {
+    addItem();
+  }
+
+  function handleRemoveActive() {
+    if (!activeItem) return;
+    removeItem(activeItem.id);
+  }
+
+  return (
+    <div className="space-y-4">
+      <SectionHeader
+        title="Items"
+        subtitle="Select one row, edit it, then move to the next."
+        actionLabel="+ Add item"
+        onAction={handleAddItem}
+      />
+
+      {items.length === 0 ? (
+        <EmptyEditorState
+          icon="🧾"
+          title="No items yet"
+          body="Add food, trip costs, court fees, groceries, utilities, or any shared expense."
+          actionLabel="+ Add first item"
+          onAction={handleAddItem}
+        />
+      ) : (
+        <div className="grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
+          <div className="lg:max-h-[520px] lg:overflow-y-auto">
+            <div className="-mx-1 overflow-x-auto pb-1 lg:mx-0 lg:overflow-visible lg:pb-0">
+              <div className="flex min-w-max gap-2 px-1 lg:block lg:min-w-0 lg:space-y-2 lg:px-0">
+                {items.map((item, index) => {
+                  const active = item.id === activeItem?.id;
+                  const lineTotal =
+                    (Number(item.unitPrice) || 0) * (Number(item.qty) || 0);
+
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setActiveId(item.id)}
+                      className={[
+                        "w-[150px] shrink-0 rounded-[1.2rem] border p-3 text-left transition lg:w-full",
+                        active
+                          ? "border-teal-300 bg-teal-50 ring-2 ring-teal-100 dark:border-teal-400/30 dark:bg-teal-500/10 dark:ring-teal-400/10"
+                          : "border-zinc-200 bg-[#fbfbf8] hover:border-teal-300 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10",
+                      ].join(" ")}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">
+                            Item {index + 1}
+                          </div>
+                          <div className="mt-1 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                            {item.name || "Unnamed"}
+                          </div>
+                        </div>
+
+                        {active ? (
+                          <span className="h-2 w-2 shrink-0 rounded-full bg-teal-600" />
+                        ) : null}
+                      </div>
+
+                      <div className="mt-2 text-xs font-bold text-zinc-700 dark:text-zinc-200">
+                        {peso(lineTotal)}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
-        )}
 
-        {/* PAYMENTS */}
-        {tab === "payments" && (
-          <div className="space-y-3">
-            <HeaderRow title="Payments" actionLabel="+ Add" onAction={addPayment} />
-
-            <div className={cls.subtleCard}>
-              <div className="text-xs text-zinc-600 dark:text-zinc-300">
-                Total due: <span className="font-semibold">₱{r.totalDue.toFixed(2)}</span>
-              </div>
-              <div className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
-                Total paid: <b>₱{totalPaid.toFixed(2)}</b> · Change: <b>₱{changeTotal.toFixed(2)}</b>
-              </div>
-            </div>
-
-            {/* Change distribution */}
-            <div className={cls.subtleCard}>
-              <div className="text-xs font-medium text-zinc-600 dark:text-zinc-300">Change distribution</div>
-
-              <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
-                <div>
-                  <div className="mb-1 text-[11px] font-medium text-zinc-600 dark:text-zinc-300">Rule</div>
-                  <select
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-zinc-950/40"
-                    value={mode}
-                    onChange={(e) => setChangeHandling({ mode: e.target.value as any })}
-                  >
-                    <option value="auto">Auto (proportional to payers)</option>
-                    <option value="receiver">One person keeps all</option>
-                    <option value="equal">Split equally</option>
-                    <option value="custom">Custom split</option>
-                  </select>
-                </div>
-
-                {(mode === "receiver" || mode === "equal" || mode === "custom") && (
-                  <div>
-                    <div className="mb-1 text-[11px] font-medium text-zinc-600 dark:text-zinc-300">
-                      {mode === "receiver" ? "Who keeps the change?" : "Remainder goes to"}
-                    </div>
-                    <select
-                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-zinc-950/40"
-                      value={receiverId ?? ""}
-                      onChange={(e) => setChangeHandling({ receiverId: e.target.value })}
-                    >
-                      {session.people.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name || "Unnamed"}
-                        </option>
-                      ))}
-                    </select>
+          {activeItem ? (
+            <div className="rounded-[1.35rem] border border-zinc-200 bg-[#fbfbf8] p-3 dark:border-white/10 dark:bg-white/5">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                    Edit selected item
                   </div>
-                )}
-              </div>
-
-              {mode === "custom" && (
-                <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3 dark:border-white/10 dark:bg-zinc-950/40">
-                  <div className="text-xs font-medium text-zinc-600 dark:text-zinc-300">Custom split (editable)</div>
-
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    {session.people.map((p) => (
-                      <div key={p.id}>
-                        <div className="mb-1 text-[11px] text-zinc-600 dark:text-zinc-300">{p.name || "Unnamed"}</div>
-                        <DecimalInput
-                          value={Number(customAlloc[p.id] ?? 0)}
-                          onChangeNumber={(n) => setCustomChangeAllocation(p.id, n)}
-                          placeholder="0"
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-zinc-950/40"
-                        />
-                      </div>
-                    ))}
-                  </div>
-
-                  <ChangeCustomSummary
-                    people={session.people}
-                    receiverId={receiverId}
-                    changeTotal={changeTotal}
-                    customAlloc={customAlloc}
-                  />
-
-                  <div className="mt-2 flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={resetCustomChangeAllocations}
-                      className={["rounded-xl border px-3 py-1.5 text-xs font-medium transition", cls.accentBtn].join(" ")}
-                    >
-                      Reset custom split
-                    </button>
-
-                    <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                      If inputs don’t add up, remainder goes to selected person.
-                    </span>
+                  <div className="mt-1 truncate text-xs text-zinc-500 dark:text-zinc-400">
+                    {activeItem.name || "Unnamed item"}
                   </div>
                 </div>
-              )}
-            </div>
 
-            {/* Payment rows */}
-            <div className="space-y-2">
-              {(session.payments ?? []).map((pay) => (
-                <div
-                  key={pay.id}
-                  className="rounded-2xl border border-zinc-200 bg-white p-3 dark:border-white/10 dark:bg-zinc-950/40"
+                <button
+                  type="button"
+                  className={dangerButtonClass}
+                  onClick={handleRemoveActive}
                 >
-                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                    <div>
-                      <div className="mb-1 text-[11px] font-medium text-zinc-600 dark:text-zinc-300">
-                        Who paid the cashier?
-                      </div>
-                      <select
-                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-zinc-950/40"
-                        value={pay.payerId || (session.people[0]?.id ?? "")}
-                        onChange={(e) => updatePayment(pay.id, { payerId: e.target.value })}
-                      >
-                        {session.people.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name || "Unnamed"}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                  Delete
+                </button>
+              </div>
 
-                    <div className="flex items-end gap-2">
-                      <div className="w-full">
-                        <div className="mb-1 text-[11px] font-medium text-zinc-600 dark:text-zinc-300">Method</div>
-                        <select
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-zinc-950/40"
-                          value={pay.method}
-                          onChange={(e) => updatePayment(pay.id, { method: e.target.value as any })}
-                        >
-                          <option value="cash">Cash</option>
-                          <option value="gcash">GCash</option>
-                          <option value="maya">Maya</option>
-                          <option value="card">Card</option>
-                          <option value="bank">Bank</option>
-                          <option value="other">Other</option>
-                        </select>
-                      </div>
+              <div className="space-y-3">
+                <Field label="Item name">
+                  <input
+                    className={inputClass}
+                    value={activeItem.name}
+                    onChange={(e) =>
+                      updateItem(activeItem.id, { name: e.target.value })
+                    }
+                    placeholder="Item name"
+                  />
+                </Field>
 
-                      <button
-                        type="button"
-                        className={[
-                          "grid h-10 w-10 place-items-center rounded-xl border text-xs transition",
-                          cls.dangerBtn,
-                        ].join(" ")}
-                        onClick={() => removePayment(pay.id)}
-                        title="Remove"
-                      >
-                        ✕
-                      </button>
-                    </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <Field label="Price">
+                    <DecimalInput
+                      value={activeItem.unitPrice}
+                      onChangeNumber={(n) =>
+                        updateItem(activeItem.id, { unitPrice: n })
+                      }
+                      placeholder="0.00"
+                    />
+                  </Field>
 
-                    <div>
-                      <div className="mb-1 text-[11px] font-medium text-zinc-600 dark:text-zinc-300">
-                        Amount paid to cashier
-                      </div>
-                      <DecimalInput
-                        value={Number(pay.amount ?? 0)}
-                        onChangeNumber={(n) => updatePayment(pay.id, { amount: n })}
-                        placeholder="0.00"
-                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none dark:border-white/10 dark:bg-zinc-950/40"
-                      />
+                  <Field label="Qty">
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      inputMode="numeric"
+                      className={smallInputClass}
+                      value={activeItem.qty}
+                      onChange={(e) =>
+                        updateItem(activeItem.id, {
+                          qty: Math.max(1, Number(e.target.value || 1)),
+                        })
+                      }
+                    />
+                  </Field>
+
+                  <Field label="Total">
+                    <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold dark:border-white/10 dark:bg-zinc-950/40">
+                      {peso(
+                        (Number(activeItem.unitPrice) || 0) *
+                          (Number(activeItem.qty) || 0)
+                      )}
                     </div>
+                  </Field>
+                </div>
+
+                <div>
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                    Shared by
                   </div>
 
+                  {people.length === 0 ? (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-100">
+                      Add people first before assigning this item.
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {people.map((person) => {
+                        const active =
+                          activeItem.assignedPersonIds?.includes(person.id);
+
+                        return (
+                          <button
+                            key={person.id}
+                            type="button"
+                            onClick={() => toggleItemPerson(activeItem.id, person.id)}
+                            className={[
+                              "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                              active
+                                ? "border-teal-200 bg-teal-100 text-teal-800 dark:border-teal-500/20 dark:bg-teal-500/10 dark:text-teal-100"
+                                : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950/40 dark:text-zinc-300 dark:hover:bg-white/10",
+                            ].join(" ")}
+                          >
+                            {person.name || "Unnamed"}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div className="mt-2 text-[11px] leading-5 text-zinc-500 dark:text-zinc-400">
+                    If no one is selected, this item is split by everyone.
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    className={ghostButtonClass}
+                    onClick={() => {
+                      const currentIndex = items.findIndex(
+                        (item) => item.id === activeItem.id
+                      );
+                      const previous = items[Math.max(0, currentIndex - 1)];
+                      if (previous) setActiveId(previous.id);
+                    }}
+                  >
+                    Previous
+                  </button>
+
+                  <button
+                    type="button"
+                    className={ghostButtonClass}
+                    onClick={() => {
+                      const currentIndex = items.findIndex(
+                        (item) => item.id === activeItem.id
+                      );
+                      const next = items[Math.min(items.length - 1, currentIndex + 1)];
+                      if (next) setActiveId(next.id);
+                    }}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AdjustmentsTab({
+  session,
+  totalDue,
+  setMeta,
+  setServiceAmount,
+  setVatAmount,
+  setLessVatExempt,
+  setLessPwdDiscount,
+  setPwdScope,
+}: {
+  session: any;
+  totalDue: number;
+  setMeta: (patch: any) => void;
+  setServiceAmount: (amount: number) => void;
+  setVatAmount: (amount: number) => void;
+  setLessVatExempt: (amount: number) => void;
+  setLessPwdDiscount: (amount: number) => void;
+  setPwdScope: (scope: "person" | "bill") => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <SectionHeader title="Details" subtitle="Optional name, charges, and discounts." />
+
+      <EditorCard title="Split name">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Title">
+            <input
+              className={inputClass}
+              value={session.meta?.groupName ?? ""}
+              onChange={(e) => setMeta({ groupName: e.target.value })}
+              placeholder="e.g. Pickleball Fridays"
+            />
+          </Field>
+
+          <Field label="Location / note">
+            <input
+              className={inputClass}
+              value={session.meta?.location ?? ""}
+              onChange={(e) => setMeta({ location: e.target.value })}
+              placeholder="e.g. BGC"
+            />
+          </Field>
+        </div>
+      </EditorCard>
+
+      <EditorCard title="Charges">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Service charge">
+            <DecimalInput
+              value={session.charges?.serviceAmount ?? 0}
+              onChangeNumber={setServiceAmount}
+              placeholder="0.00"
+            />
+          </Field>
+
+          <Field label="VAT amount">
+            <DecimalInput
+              value={session.charges?.vatAmount ?? 0}
+              onChangeNumber={setVatAmount}
+              placeholder="0.00"
+            />
+          </Field>
+        </div>
+      </EditorCard>
+
+      <EditorCard title="Discounts">
+        <div className="mb-3 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setPwdScope("bill")}
+            className={choiceClass(session.pwdScope === "bill")}
+          >
+            Whole bill
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setPwdScope("person")}
+            className={choiceClass(session.pwdScope === "person")}
+          >
+            PWD person only
+          </button>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Less VAT exempt">
+            <DecimalInput
+              value={session.discountOverrides?.lessVatExempt ?? 0}
+              onChangeNumber={setLessVatExempt}
+              placeholder="0.00"
+            />
+          </Field>
+
+          <Field label="Discount amount">
+            <DecimalInput
+              value={session.discountOverrides?.lessPwdDiscount ?? 0}
+              onChangeNumber={setLessPwdDiscount}
+              placeholder="0.00"
+            />
+          </Field>
+        </div>
+
+        <button
+          type="button"
+          className={`${ghostButtonClass} mt-3`}
+          onClick={() => {
+            setLessVatExempt(0);
+            setLessPwdDiscount(0);
+          }}
+        >
+          Reset discounts
+        </button>
+      </EditorCard>
+
+      <div className="rounded-[1.35rem] border border-teal-100 bg-teal-50 px-4 py-3 text-sm text-teal-900 dark:border-teal-500/20 dark:bg-teal-500/10 dark:text-teal-100">
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-medium">Computed total due</span>
+          <span className="font-bold">{peso(totalDue)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PaymentsTab({
+  people,
+  payments,
+  totalDue,
+  totalPaid,
+  changeTotal,
+  missing,
+  mode,
+  receiverId,
+  customAlloc,
+  addPayment,
+  updatePayment,
+  removePayment,
+  setChangeHandling,
+  setCustomChangeAllocation,
+  resetCustomChangeAllocations,
+}: {
+  people: Array<{ id: string; name: string }>;
+  payments: Array<{
+    id: string;
+    payerId: string;
+    amount: number;
+    method: PaymentMethod;
+    note?: string;
+  }>;
+  totalDue: number;
+  totalPaid: number;
+  changeTotal: number;
+  missing: number;
+  mode: "auto" | "receiver" | "equal" | "custom";
+  receiverId: string;
+  customAlloc: Record<string, number>;
+  addPayment: () => void;
+  updatePayment: (id: string, patch: any) => void;
+  removePayment: (id: string) => void;
+  setChangeHandling: (patch: any) => void;
+  setCustomChangeAllocation: (personId: string, amount: number) => void;
+  resetCustomChangeAllocations: () => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <SectionHeader
+        title="Payments"
+        subtitle="Add who paid the cashier, organizer, or upfront bill."
+        actionLabel="+ Add payment"
+        onAction={addPayment}
+      />
+
+      <div className="grid grid-cols-3 gap-2">
+        <MiniStat label="Due" value={peso(totalDue)} tone="teal" />
+        <MiniStat label="Paid" value={peso(totalPaid)} tone="sky" />
+        <MiniStat label="Change" value={peso(changeTotal)} tone="amber" />
+      </div>
+
+      {people.length === 0 ? (
+        <EmptyEditorState
+          icon="👥"
+          title="Add people first"
+          body="Payments need a person assigned as the payer."
+          actionLabel="Go to People"
+          onAction={() =>
+            window.dispatchEvent(new CustomEvent("rs:setTab", { detail: { tab: "people" } }))
+          }
+        />
+      ) : payments.length === 0 ? (
+        <EmptyEditorState
+          icon="💸"
+          title="No payments yet"
+          body="Add who paid the cashier, organizer, court, or shared bill."
+          actionLabel="+ Add first payment"
+          onAction={addPayment}
+        />
+      ) : (
+        <div className="space-y-3">
+          {payments.map((payment) => (
+            <div
+              key={payment.id}
+              className="rounded-[1.35rem] border border-zinc-200 bg-[#fbfbf8] p-3 dark:border-white/10 dark:bg-white/5"
+            >
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Who paid?">
+                  <select
+                    className={smallInputClass}
+                    value={payment.payerId}
+                    onChange={(e) => updatePayment(payment.id, { payerId: e.target.value })}
+                  >
+                    {people.map((person) => (
+                      <option key={person.id} value={person.id}>
+                        {person.name || "Unnamed"}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+
+                <Field label="Method">
+                  <select
+                    className={smallInputClass}
+                    value={payment.method}
+                    onChange={(e) =>
+                      updatePayment(payment.id, {
+                        method: e.target.value as PaymentMethod,
+                      })
+                    }
+                  >
+                    <option value="cash">Cash</option>
+                    <option value="gcash">GCash</option>
+                    <option value="maya">Maya</option>
+                    <option value="card">Card</option>
+                    <option value="bank">Bank</option>
+                    <option value="other">Other</option>
+                  </select>
+                </Field>
+
+                <Field label="Amount paid">
+                  <DecimalInput
+                    value={payment.amount}
+                    onChangeNumber={(n) => updatePayment(payment.id, { amount: n })}
+                    placeholder="0.00"
+                  />
+                </Field>
+
+                <Field label="Note">
                   <input
-                    className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700 dark:border-white/10 dark:bg-zinc-950/40 dark:text-zinc-200"
-                    value={pay.note ?? ""}
-                    onChange={(e) => updatePayment(pay.id, { note: e.target.value })}
-                    placeholder="Note (optional)"
+                    className={smallInputClass}
+                    value={payment.note ?? ""}
+                    onChange={(e) => updatePayment(payment.id, { note: e.target.value })}
+                    placeholder="Optional"
+                  />
+                </Field>
+              </div>
+
+              <button
+                type="button"
+                className={`${dangerButtonClass} mt-3`}
+                onClick={() => removePayment(payment.id)}
+              >
+                Remove payment
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {missing > 0.009 ? (
+        <div className="rounded-[1.35rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-100">
+          Missing payment: <b>{peso(missing)}</b>
+        </div>
+      ) : null}
+
+      {changeTotal > 0.009 ? (
+        <EditorCard title="Change distribution">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setChangeHandling({ mode: "auto" })}
+              className={choiceClass(mode === "auto")}
+            >
+              Auto by payers
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setChangeHandling({ mode: "equal" })}
+              className={choiceClass(mode === "equal")}
+            >
+              Split equally
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setChangeHandling({ mode: "receiver", receiverId })}
+              className={choiceClass(mode === "receiver")}
+            >
+              One receiver
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setChangeHandling({ mode: "custom" })}
+              className={choiceClass(mode === "custom")}
+            >
+              Custom
+            </button>
+          </div>
+
+          {mode === "receiver" ? (
+            <div className="mt-3">
+              <Field label="Who received the change?">
+                <select
+                  className={inputClass}
+                  value={receiverId}
+                  onChange={(e) =>
+                    setChangeHandling({
+                      mode: "receiver",
+                      receiverId: e.target.value,
+                    })
+                  }
+                >
+                  {people.map((person) => (
+                    <option key={person.id} value={person.id}>
+                      {person.name || "Unnamed"}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+          ) : null}
+
+          {mode === "custom" ? (
+            <div className="mt-3 space-y-2">
+              {people.map((person) => (
+                <div key={person.id} className="grid grid-cols-[1fr_130px] items-center gap-2">
+                  <div className="truncate text-sm font-medium">{person.name || "Unnamed"}</div>
+                  <DecimalInput
+                    value={customAlloc[person.id] ?? 0}
+                    onChangeNumber={(n) => setCustomChangeAllocation(person.id, n)}
+                    placeholder="0.00"
                   />
                 </div>
               ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
 
-  return (
-    <>
-      {/* ✅ Desktop only (HIDDEN on mobile to avoid doubling) */}
-      <div
-        id="editor-panel"
-        className="hidden md:block rounded-3xl border border-zinc-200 bg-white shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none md:sticky md:top-20"
-      >
-        <div className="max-h-[calc(100vh-6rem)] overflow-hidden p-4">{PanelBody}</div>
-      </div>
-
-      {/* ✅ Mobile sticky bottom bar + sheet */}
-      <div className="md:hidden">
-        {/* Sticky bar */}
-        <div
-          className="fixed bottom-0 left-0 right-0 z-40 border-t border-zinc-200 bg-white/90 backdrop-blur dark:border-white/10 dark:bg-zinc-950/85"
-          style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-        >
-          <div className="mx-auto max-w-6xl px-4 py-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-semibold">Editor</div>
-                <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                  Tap to edit people/items/payments.
-                </div>
-              </div>
               <button
                 type="button"
-                onClick={() => setMobileOpen(true)}
-                className={["rounded-xl border px-3 py-2 text-xs font-medium transition", cls.accentBtn].join(" ")}
+                className={ghostButtonClass}
+                onClick={resetCustomChangeAllocations}
               >
-                Open
+                Reset custom change
               </button>
             </div>
-          </div>
-        </div>
-
-        {/* Sheet */}
-        {mobileOpen && (
-          <div className="fixed inset-0 z-50">
-            {/* Backdrop */}
-            <button
-              type="button"
-              className="absolute inset-0 bg-black/40"
-              onClick={() => setMobileOpen(false)}
-              aria-label="Close editor"
-            />
-
-            <div
-  className={[
-    "absolute bottom-0 left-0 right-0 rounded-t-3xl border border-zinc-200 bg-white shadow-[0_-30px_70px_-35px_rgba(0,0,0,0.6)] dark:border-white/10 dark:bg-zinc-950",
-    mobileSize === "half" ? "h-[55vh]" : "h-[92vh]",
-  ].join(" ")}
->
-  {/* Header */}
-  <div className="flex items-center justify-between px-4 py-3">
-    <button
-  type="button"
-  onClick={() => setMobileSize((s) => (s === "half" ? "full" : "half"))}
-  className="h-1.5 w-10 rounded-full bg-zinc-200 dark:bg-white/10"
-  aria-label="Toggle size"
-/>
-
-
-    <div
-      className="h-1.5 w-10 rounded-full bg-zinc-200 dark:bg-white/10"
-      title="Drag disabled (locked size)"
-    />
-
-    <button
-      type="button"
-      onClick={() => setMobileOpen(false)}
-      className={[
-        "rounded-xl border px-3 py-2 text-xs font-medium transition",
-        cls.dangerBtn,
-      ].join(" ")}
-    >
-      Close
-    </button>
-  </div>
-
-  {/* Body */}
-  <div
-    className={[
-      "overflow-hidden px-4 pb-4",
-      mobileSize === "half" ? "h-[calc(55vh-56px)]" : "h-[calc(92vh-56px)]",
-    ].join(" ")}
-  >
-    <div
-      className={[
-        "overflow-auto",
-        mobileSize === "half" ? "h-[calc(55vh-72px)]" : "h-[calc(92vh-72px)]",
-      ].join(" ")}
-    >
-      {PanelBody}
-    </div>
-  </div>
-</div>
-
-          </div>
-        )}
-      </div>
-    </>
-  );
-}
-
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className={cls.subtleCard}>
-      <div className="text-xs font-medium text-zinc-600 dark:text-zinc-300">{title}</div>
-      {children}
-    </div>
-  );
-}
-
-function ChangeCustomSummary({
-  people,
-  receiverId,
-  changeTotal,
-  customAlloc,
-}: {
-  people: { id: string; name: string }[];
-  receiverId?: string;
-  changeTotal: number;
-  customAlloc: Record<string, number>;
-}) {
-  const sum = Object.values(customAlloc).reduce((a, b) => a + (Number(b) || 0), 0);
-  const remainder = Math.max(0, changeTotal - sum);
-  const receiverName = receiverId ? people.find((x) => x.id === receiverId)?.name : null;
-
-  return (
-    <div className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
-      Allocated: <b>₱{sum.toFixed(2)}</b> / Change: <b>₱{changeTotal.toFixed(2)}</b> · Remainder:{" "}
-      <b>₱{remainder.toFixed(2)}</b>
-      {receiverName ? (
-        <>
-          {" "}
-          → goes to <b>{receiverName}</b>
-        </>
+          ) : null}
+        </EditorCard>
       ) : null}
     </div>
   );
 }
 
-function HeaderRow({
+function SectionHeader({
   title,
+  subtitle,
   actionLabel,
   onAction,
 }: {
   title: string;
+  subtitle: string;
   actionLabel?: string;
   onAction?: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between">
-      <div className="text-sm font-semibold">{title}</div>
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <div className="text-base font-semibold text-zinc-900 dark:text-zinc-50">{title}</div>
+        <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400 sm:text-sm">
+          {subtitle}
+        </div>
+      </div>
+
       {actionLabel && onAction ? (
-        <button
-          onClick={onAction}
-          className="rounded-xl border border-teal-600/30 bg-teal-500/10 px-3 py-1.5 text-xs font-medium text-teal-800 shadow-sm transition hover:bg-teal-500/15 dark:border-teal-400/30 dark:bg-teal-400/10 dark:text-teal-100 dark:hover:bg-teal-400/15"
-          type="button"
-        >
+        <button type="button" className={primaryButtonClass} onClick={onAction}>
           {actionLabel}
         </button>
       ) : null}
@@ -769,33 +1048,50 @@ function HeaderRow({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function EditorCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div>
-      <div className="mb-1 text-[11px] font-medium text-zinc-600 dark:text-zinc-300">{label}</div>
-      {children}
+    <div className="rounded-[1.35rem] border border-zinc-200 bg-[#fbfbf8] p-4 dark:border-white/10 dark:bg-white/5">
+      <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{title}</div>
+      <div className="mt-3">{children}</div>
     </div>
   );
 }
 
-function Hint({ children }: { children: React.ReactNode }) {
-  return <div className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">{children}</div>;
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 sm:text-[11px]">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
 }
 
 function DecimalInput({
   value,
   onChangeNumber,
   placeholder,
-  className,
 }: {
   value: number;
   onChangeNumber: (n: number) => void;
   placeholder?: string;
-  className?: string;
 }) {
-  const [text, setText] = useState<string>(String(value ?? 0));
+  const [text, setText] = useState(String(value ?? 0));
 
-  React.useEffect(() => {
+  useEffect(() => {
     setText(String(value ?? 0));
   }, [value]);
 
@@ -803,23 +1099,90 @@ function DecimalInput({
     <input
       type="text"
       inputMode="decimal"
-      className={className}
       value={text}
       placeholder={placeholder}
+      className={smallInputClass}
       onChange={(e) => {
-        const v = e.target.value;
-        if (!/^\d*\.?\d*$/.test(v)) return;
-        setText(v);
-        if (v === "" || v === ".") return;
-        const n = Number(v);
-        if (Number.isFinite(n)) onChangeNumber(n);
+        const raw = e.target.value.replace(/[^\d.]/g, "");
+        const parts = raw.split(".");
+        const cleaned = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join("")}` : raw;
+
+        setText(cleaned);
+        onChangeNumber(Number(cleaned) || 0);
       }}
       onBlur={() => {
-        if (text === "" || text === ".") {
-          setText("0");
-          onChangeNumber(0);
-        }
+        const n = Number(text) || 0;
+        setText(String(Math.round((n + Number.EPSILON) * 100) / 100));
       }}
     />
   );
+}
+
+function EmptyEditorState({
+  icon,
+  title,
+  body,
+  actionLabel,
+  onAction,
+}: {
+  icon: string;
+  title: string;
+  body: string;
+  actionLabel: string;
+  onAction: () => void;
+}) {
+  return (
+    <div className="rounded-[1.35rem] border border-dashed border-zinc-300 bg-[#fbfbf8] px-5 py-8 text-center dark:border-white/10 dark:bg-white/5">
+      <div className="text-3xl">{icon}</div>
+      <div className="mt-2 text-sm font-semibold text-zinc-900 dark:text-zinc-50">{title}</div>
+      <div className="mx-auto mt-1 max-w-[300px] text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+        {body}
+      </div>
+
+      <button type="button" onClick={onAction} className={`${primaryButtonClass} mt-4`}>
+        {actionLabel}
+      </button>
+    </div>
+  );
+}
+
+function Hint({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs leading-5 text-zinc-500 dark:border-white/10 dark:bg-zinc-950/40 dark:text-zinc-400">
+      {children}
+    </div>
+  );
+}
+
+function MiniStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "teal" | "sky" | "amber";
+}) {
+  const toneClass =
+    tone === "teal"
+      ? "border-teal-100 bg-teal-50 text-teal-800 dark:border-teal-500/20 dark:bg-teal-500/10 dark:text-teal-100"
+      : tone === "sky"
+        ? "border-sky-100 bg-sky-50 text-sky-800 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-100"
+        : "border-amber-100 bg-amber-50 text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-100";
+
+  return (
+    <div className={`rounded-2xl border px-3 py-3 ${toneClass}`}>
+      <div className="text-[10px] font-semibold uppercase tracking-wide opacity-75">{label}</div>
+      <div className="mt-1 truncate text-sm font-bold">{value}</div>
+    </div>
+  );
+}
+
+function choiceClass(active: boolean) {
+  return [
+    "rounded-2xl border px-3 py-2 text-xs font-semibold transition",
+    active
+      ? "border-teal-600 bg-teal-600 text-white"
+      : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950/40 dark:text-zinc-300 dark:hover:bg-white/10",
+  ].join(" ");
 }

@@ -1,20 +1,16 @@
 /* eslint-disable react-hooks/set-state-in-effect */
+
+/* src/components/SplitProvider.tsx */
 "use client";
 
-import React, {
-  createContext,
-  useContext,
-  useMemo,
-  useState,
-  useEffect,
-} from "react";
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type {
-  SplitSession,
-  Person,
+  ChangeHandling,
   Item,
   Payment,
   PaymentMethod,
-  ChangeHandling,
+  Person,
+  SplitSession,
 } from "@/src/lib/types";
 import { uid } from "@/src/lib/id";
 import { decodeSessionFromParam } from "@/src/lib/shareLink";
@@ -22,39 +18,31 @@ import { decodeSessionFromParam } from "@/src/lib/shareLink";
 type SplitContextValue = {
   session: SplitSession;
 
-  // ✅ for Save/Share + New Split
   setSession: (next: SplitSession) => void;
   resetSession: () => void;
 
-  // meta
   setMeta: (patch: Partial<SplitSession["meta"]>) => void;
 
-  // people
   addPerson: () => void;
   updatePerson: (id: string, patch: Partial<Person>) => void;
   removePerson: (id: string) => void;
 
-  // items
   addItem: () => void;
   updateItem: (id: string, patch: Partial<Item>) => void;
   removeItem: (id: string) => void;
   toggleItemPerson: (itemId: string, personId: string) => void;
 
-  // manual charges
   setServiceAmount: (amount: number) => void;
   setVatAmount: (amount: number) => void;
 
-  // manual discounts
   setPwdScope: (scope: "person" | "bill") => void;
   setLessVatExempt: (amount: number) => void;
   setLessPwdDiscount: (amount: number) => void;
 
-  // payments
   addPayment: () => void;
   updatePayment: (id: string, patch: Partial<Payment>) => void;
   removePayment: (id: string) => void;
 
-  // change handling
   setChangeHandling: (patch: Partial<ChangeHandling>) => void;
   setCustomChangeAllocation: (personId: string, amount: number) => void;
   resetCustomChangeAllocations: () => void;
@@ -62,37 +50,41 @@ type SplitContextValue = {
 
 const SplitContext = createContext<SplitContextValue | null>(null);
 
-const money = (n: number) =>
-  Math.round((n + Number.EPSILON) * 100) / 100;
+const money = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
-const initialSession: SplitSession = {
-  people: [
-    { id: uid("p"), name: "Yana", isPWD: false },
-    { id: uid("p"), name: "Chloe", isPWD: false },
-  ],
-  items: [
-    {
-      id: uid("i"),
-      name: "Chicken Inasal",
-      unitPrice: 159,
-      qty: 1,
-      assignedPersonIds: [],
-    },
-  ],
-  payments: [],
-  meta: { groupName: "Group", location: "—" },
-  charges: { serviceAmount: 0, vatAmount: 0 },
-  pwdScope: "person",
-  discountOverrides: { lessVatExempt: 0, lessPwdDiscount: 0 },
-  changeHandling: { mode: "auto", receiverId: undefined, allocations: {} },
-};
+function createInitialSession(): SplitSession {
+  return {
+    people: [],
+    items: [],
+    payments: [],
+    meta: { groupName: "", location: "" },
+    charges: { serviceAmount: 0, vatAmount: 0 },
+    pwdScope: "person",
+    discountOverrides: { lessVatExempt: 0, lessPwdDiscount: 0 },
+    changeHandling: { mode: "auto", receiverId: undefined, allocations: {} },
+  };
+}
+
+function normalizeSession(input: SplitSession): SplitSession {
+  return {
+    people: input.people ?? [],
+    items: input.items ?? [],
+    payments: input.payments ?? [],
+    meta: input.meta ?? { groupName: "", location: "" },
+    charges: input.charges ?? { serviceAmount: 0, vatAmount: 0 },
+    pwdScope: input.pwdScope ?? "person",
+    discountOverrides: input.discountOverrides ?? { lessVatExempt: 0, lessPwdDiscount: 0 },
+    changeHandling: input.changeHandling ?? { mode: "auto", receiverId: undefined, allocations: {} },
+  };
+}
 
 export function SplitProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSessionState] = useState<SplitSession>(initialSession);
+  const [session, setSessionState] = useState<SplitSession>(() => createInitialSession());
 
-  // ✅ Load from share link (?s=...) on first mount
+  // Load from share link (?s=...) on first mount.
   useEffect(() => {
     if (typeof window === "undefined") return;
+
     const sp = new URLSearchParams(window.location.search);
     const s = sp.get("s");
     if (!s) return;
@@ -100,12 +92,11 @@ export function SplitProvider({ children }: { children: React.ReactNode }) {
     const decoded = decodeSessionFromParam(s);
     if (!decoded) return;
 
-    setSessionState(decoded);
+    setSessionState(normalizeSession(decoded));
   }, []);
 
-  // ✅ external setters (used by Save/Share menu)
-  const setSession = (next: SplitSession) => setSessionState(next);
-  const resetSession = () => setSessionState(initialSession);
+  const setSession = (next: SplitSession) => setSessionState(normalizeSession(next));
+  const resetSession = () => setSessionState(createInitialSession());
 
   const api: SplitContextValue = useMemo(
     () => ({
@@ -152,7 +143,6 @@ export function SplitProvider({ children }: { children: React.ReactNode }) {
           );
 
           const prevCH = s.changeHandling ?? { mode: "auto", allocations: {} };
-
           const nextReceiverId =
             prevCH.receiverId === id ? fallbackPayerId || undefined : prevCH.receiverId;
 
@@ -209,8 +199,10 @@ export function SplitProvider({ children }: { children: React.ReactNode }) {
           ...s,
           items: s.items.map((it) => {
             if (it.id !== itemId) return it;
+
             const assigned = it.assignedPersonIds ?? [];
             const has = assigned.includes(personId);
+
             return {
               ...it,
               assignedPersonIds: has

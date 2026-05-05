@@ -1,6 +1,7 @@
+/* app/globals.css */
 @import "tailwindcss";
 
-/* ✅ This makes dark: respond to .dark class (Tailwind v4) */
+/* Tailwind v4: dark: responds to .dark class from next-themes */
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
@@ -8,10 +9,65 @@
 }
 
 * {
+  box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
 }
 
 html,
 body {
-  height: 100%;
+  min-height: 100%;
+  overflow-x: hidden;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-width: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+/* Utility used by modal/sheet surfaces */
+.rs-safe-bottom {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+/* 
+  Mobile compact mode:
+  This makes Tailwind rem-based sizes smaller on phones,
+  so cards, tabs, spacing, and text feel less crowded.
+*/
+@media (max-width: 767px) {
+  html {
+    font-size: 13px;
+  }
+
+  body {
+    font-size: 0.875rem;
+  }
+
+  /*
+    Keep form fields at 16px to prevent iOS/Safari zoom
+    while still letting the rest of the UI stay compact.
+  */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  button {
+    touch-action: manipulation;
+  }
+
+  .rs-safe-bottom {
+    padding-bottom: max(0.6rem, env(safe-area-inset-bottom));
+  }
 }
