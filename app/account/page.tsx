@@ -79,6 +79,32 @@ function formatDate(value: string) {
   }
 }
 
+function withTimeout<T>(
+  promise: Promise<T>,
+  label: string,
+  ms = 15000
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(
+        new Error(
+          `${label} took too long. Please refresh or check Supabase/Vercel logs.`
+        )
+      );
+    }, ms);
+
+    promise
+      .then((value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
+
 export default function AccountPage() {
   const router = useRouter();
   const supabase = supabaseBrowser();
@@ -118,44 +144,67 @@ export default function AccountPage() {
   useEffect(() => {
     let alive = true;
 
-    async function loadUser() {
-      const { data } = await supabase.auth.getUser();
+    async function loadAccount() {
+      setLoading(true);
+      setMessage("");
 
-      if (!alive) return;
+      try {
+        const { data, error } = await withTimeout(
+          supabase.auth.getUser(),
+          "Auth check"
+        );
 
-      if (!data.user) {
-        router.replace("/auth");
-        return;
+        if (error) throw error;
+        if (!alive) return;
+
+        if (!data.user) {
+          setUser(null);
+          setProfile(null);
+          setLoading(false);
+          router.replace("/auth");
+          return;
+        }
+
+        const nextProfile = await withTimeout(getMyProfile(), "Profile load");
+
+        if (!alive) return;
+
+        setUser(data.user);
+        setProfile(nextProfile);
+
+        await refreshData();
+
+        if (!alive) return;
+      } catch (e: any) {
+        console.error("Account load failed:", e);
+
+        if (alive) {
+          setMessage(
+            e?.message ||
+              "Could not load account. Please check your Supabase tables, policies, and Vercel environment variables."
+          );
+        }
+      } finally {
+        if (alive) {
+          setLoading(false);
+        }
       }
-
-      const nextProfile = await getMyProfile();
-
-      setUser(data.user);
-      setProfile(nextProfile);
-
-      await refreshData();
-      setLoading(false);
     }
 
-    loadUser();
+    loadAccount();
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      const nextUser = session?.user ?? null;
-
-      if (!nextUser) {
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session?.user) {
+        setUser(null);
+        setProfile(null);
+        setLoading(false);
         router.replace("/auth");
         return;
       }
 
-      const nextProfile = await getMyProfile();
-
-      setUser(nextUser);
-      setProfile(nextProfile);
-
-      await refreshData();
-      setLoading(false);
+      loadAccount();
     });
 
     return () => {
@@ -210,15 +259,19 @@ export default function AccountPage() {
   );
 
   async function refreshData() {
-    const [nextCollections, nextGroups, nextSaves] = await Promise.all([
-      listCollections(),
-      listGroups(),
-      listCloudSaves(),
-    ]);
+    try {
+      const [nextCollections, nextGroups, nextSaves] = await withTimeout(
+        Promise.all([listCollections(), listGroups(), listCloudSaves()]),
+        "Account data load"
+      );
 
-    setCollections(nextCollections);
-    setGroups(nextGroups);
-    setSaves(nextSaves);
+      setCollections(nextCollections);
+      setGroups(nextGroups);
+      setSaves(nextSaves);
+    } catch (e: any) {
+      console.error("Account data refresh failed:", e);
+      throw e;
+    }
   }
 
   async function logout() {
