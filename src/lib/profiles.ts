@@ -1,7 +1,8 @@
 /* src/lib/profiles.ts */
 "use client";
 
-import { supabaseBrowser } from "@/src/lib/supabase/client";
+import type { User } from "@supabase/supabase-js";
+import { supabaseBrowser, withTimeout } from "@/src/lib/supabase/client";
 
 export type KkbProfile = {
   id: string;
@@ -15,16 +16,37 @@ export type KkbProfile = {
   updated_at: string;
 };
 
-export async function getMyProfile() {
+async function getSessionUser() {
   const supabase = supabaseBrowser();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const { data, error } = await withTimeout(
+    supabase.auth.getSession(),
+    "Session check"
+  );
 
-  if (userError) throw userError;
-  if (!user) throw new Error("Please sign in first.");
+  if (error) throw error;
+
+  const user = data.session?.user ?? null;
+
+  if (!user) {
+    throw new Error("Please sign in first.");
+  }
+
+  return user;
+}
+
+function getDisplayNameFromUser(user: User) {
+  return (
+    (user.user_metadata?.display_name as string | undefined) ||
+    (user.user_metadata?.name as string | undefined) ||
+    user.email?.split("@")[0] ||
+    "Account"
+  );
+}
+
+export async function getMyProfile(userOverride?: User | null) {
+  const supabase = supabaseBrowser();
+  const user = userOverride ?? (await getSessionUser());
 
   const { data, error } = await supabase
     .from("profiles")
@@ -38,11 +60,7 @@ export async function getMyProfile() {
 
   if (data) return data as KkbProfile;
 
-  const displayName =
-    (user.user_metadata?.display_name as string | undefined) ||
-    (user.user_metadata?.name as string | undefined) ||
-    user.email?.split("@")[0] ||
-    "Account";
+  const displayName = getDisplayNameFromUser(user);
 
   const { data: created, error: createError } = await supabase
     .from("profiles")
@@ -73,14 +91,7 @@ export async function updateMyProfile(input: {
   avatarUrl?: string | null;
 }) {
   const supabase = supabaseBrowser();
-
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError) throw userError;
-  if (!user) throw new Error("Please sign in first.");
+  const user = await getSessionUser();
 
   const displayName = input.displayName.trim();
 
@@ -130,14 +141,7 @@ export async function updateMyProfile(input: {
 
 export async function uploadProfilePhoto(file: File) {
   const supabase = supabaseBrowser();
-
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError) throw userError;
-  if (!user) throw new Error("Please sign in first.");
+  const user = await getSessionUser();
 
   if (!file.type.startsWith("image/")) {
     throw new Error("Please upload an image file.");

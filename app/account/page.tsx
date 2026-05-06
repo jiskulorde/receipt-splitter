@@ -13,7 +13,11 @@ import {
   type ReactNode,
 } from "react";
 import type { User } from "@supabase/supabase-js";
-import { supabaseBrowser } from "@/src/lib/supabase/client";
+import {
+  supabaseBrowser,
+  withTimeout,
+  forceLocalSignOut,
+} from "@/src/lib/supabase/client";
 import {
   listCloudSaves,
   deleteCloudSave,
@@ -79,31 +83,7 @@ function formatDate(value: string) {
   }
 }
 
-function withTimeout<T>(
-  promise: Promise<T>,
-  label: string,
-  ms = 15000
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = window.setTimeout(() => {
-      reject(
-        new Error(
-          `${label} took too long. Please refresh or check Supabase/Vercel logs.`
-        )
-      );
-    }, ms);
 
-    promise
-      .then((value) => {
-        window.clearTimeout(timer);
-        resolve(value);
-      })
-      .catch((error) => {
-        window.clearTimeout(timer);
-        reject(error);
-      });
-  });
-}
 
 export default function AccountPage() {
   const router = useRouter();
@@ -150,14 +130,17 @@ export default function AccountPage() {
 
       try {
         const { data, error } = await withTimeout(
-          supabase.auth.getUser(),
-          "Auth check"
+          supabase.auth.getSession(),
+          "Session check",
+          8000
         );
 
         if (error) throw error;
         if (!alive) return;
 
-        if (!data.user) {
+        const sessionUser = data.session?.user ?? null;
+
+        if (!sessionUser) {
           setUser(null);
           setProfile(null);
           setLoading(false);
@@ -165,11 +148,16 @@ export default function AccountPage() {
           return;
         }
 
-        const nextProfile = await withTimeout(getMyProfile(), "Profile load");
+        setUser(sessionUser);
+
+        const nextProfile = await withTimeout(
+          getMyProfile(sessionUser),
+          "Profile load",
+          8000
+        );
 
         if (!alive) return;
 
-        setUser(data.user);
         setProfile(nextProfile);
 
         await refreshData();
@@ -181,7 +169,7 @@ export default function AccountPage() {
         if (alive) {
           setMessage(
             e?.message ||
-              "Could not load account. Please check your Supabase tables, policies, and Vercel environment variables."
+              "Your login session could not be loaded. Please sign out and sign in again."
           );
         }
       } finally {
@@ -196,7 +184,9 @@ export default function AccountPage() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session?.user) {
+      const nextUser = session?.user ?? null;
+
+      if (!nextUser) {
         setUser(null);
         setProfile(null);
         setLoading(false);
@@ -275,8 +265,16 @@ export default function AccountPage() {
   }
 
   async function logout() {
-    await supabase.auth.signOut();
-    router.replace("/");
+    setBusy(true);
+    setMessage("");
+
+    try {
+      await forceLocalSignOut();
+    } finally {
+      setBusy(false);
+      router.replace("/");
+      window.location.href = "/";
+    }
   }
 
   async function handleCreateCollection() {
@@ -434,7 +432,20 @@ export default function AccountPage() {
 
         {message ? (
           <div className="mb-3 rounded-2xl border border-teal-200 bg-teal-50 px-3 py-2.5 text-xs font-medium text-teal-800 sm:mb-5 sm:px-4 sm:py-3 sm:text-sm">
-            {message}
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <span>{message}</span>
+
+              {message.toLowerCase().includes("session") ||
+              message.toLowerCase().includes("too long") ? (
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="rounded-xl bg-teal-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-teal-700"
+                >
+                  Clear session
+                </button>
+              ) : null}
+            </div>
           </div>
         ) : null}
 

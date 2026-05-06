@@ -5,7 +5,11 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { supabaseBrowser } from "@/src/lib/supabase/client";
+import {
+  supabaseBrowser,
+  withTimeout,
+  forceLocalSignOut,
+} from "@/src/lib/supabase/client";
 import { getMyProfile, type KkbProfile } from "@/src/lib/profiles";
 import ProfileAvatar from "@/src/components/ProfileAvatar";
 
@@ -29,6 +33,7 @@ export default function AuthMenu({ variant = "compact" }: Props) {
   const supabase = supabaseBrowser();
 
   const [loading, setLoading] = useState(true);
+  const [brokenSession, setBrokenSession] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<KkbProfile | null>(null);
 
@@ -37,25 +42,40 @@ export default function AuthMenu({ variant = "compact" }: Props) {
 
     async function loadUser() {
       setLoading(true);
+      setBrokenSession(false);
 
-      const { data } = await supabase.auth.getUser();
+      try {
+        const { data, error } = await withTimeout(
+          supabase.auth.getSession(),
+          "Session check",
+          8000
+        );
 
-      if (!alive) return;
+        if (error) throw error;
+        if (!alive) return;
 
-      setUser(data.user ?? null);
+        const nextUser = data.session?.user ?? null;
+        setUser(nextUser);
 
-      if (data.user) {
-        try {
-          const nextProfile = await getMyProfile();
-          if (alive) setProfile(nextProfile);
-        } catch {
-          if (alive) setProfile(null);
+        if (nextUser) {
+          try {
+            const nextProfile = await getMyProfile(nextUser);
+            if (alive) setProfile(nextProfile);
+          } catch {
+            if (alive) setProfile(null);
+          }
+        } else {
+          setProfile(null);
         }
-      } else {
-        setProfile(null);
+      } catch {
+        if (alive) {
+          setUser(null);
+          setProfile(null);
+          setBrokenSession(true);
+        }
+      } finally {
+        if (alive) setLoading(false);
       }
-
-      if (alive) setLoading(false);
     }
 
     loadUser();
@@ -66,10 +86,11 @@ export default function AuthMenu({ variant = "compact" }: Props) {
       const nextUser = session?.user ?? null;
 
       setUser(nextUser);
+      setBrokenSession(false);
 
       if (nextUser) {
         try {
-          const nextProfile = await getMyProfile();
+          const nextProfile = await getMyProfile(nextUser);
           setProfile(nextProfile);
         } catch {
           setProfile(null);
@@ -94,6 +115,26 @@ export default function AuthMenu({ variant = "compact" }: Props) {
   );
 
   const href = signedIn ? "/account" : "/auth";
+
+  async function clearBrokenSession(e: React.MouseEvent) {
+    e.preventDefault();
+    await forceLocalSignOut();
+    window.location.href = "/";
+  }
+
+  if (brokenSession) {
+    return (
+      <button
+        type="button"
+        onClick={clearBrokenSession}
+        className="inline-flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 shadow-sm transition hover:bg-amber-100"
+        title="Clear old login session"
+      >
+        <span>⚠️</span>
+        <span className="hidden sm:inline">Fix session</span>
+      </button>
+    );
+  }
 
   if (variant === "full") {
     return (
