@@ -4,12 +4,11 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabaseBrowser } from "@/src/lib/supabase/client";
 
-
-type AuthMode = "register" | "login";
+type AuthMode = "login" | "register";
 type MessageTone = "neutral" | "success" | "error";
 
 function isValidEmail(email: string) {
@@ -20,18 +19,40 @@ function passwordIssues(password: string) {
   const issues: string[] = [];
 
   if (password.length < 8) issues.push("8+ characters");
-  if (!/[A-Z]/.test(password)) issues.push("Uppercase letter");
-  if (!/[a-z]/.test(password)) issues.push("Lowercase letter");
-  if (!/[0-9]/.test(password)) issues.push("Number");
+  if (!/[A-Z]/.test(password)) issues.push("uppercase");
+  if (!/[a-z]/.test(password)) issues.push("lowercase");
+  if (!/[0-9]/.test(password)) issues.push("number");
 
   return issues;
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  label: string,
+  ms = 10000
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new Error(`${label} took too long.`));
+    }, ms);
+
+    promise
+      .then((value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      });
+  });
 }
 
 export default function AuthPage() {
   const router = useRouter();
   const supabase = supabaseBrowser();
 
-  const [mode, setMode] = useState<AuthMode>("register");
+  const [mode, setMode] = useState<AuthMode>("login");
   const [checking, setChecking] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -54,17 +75,31 @@ export default function AuthPage() {
     let alive = true;
 
     async function loadUser() {
-      const { data } = await supabase.auth.getUser();
+      try {
+        const { data } = await withTimeout(
+          supabase.auth.getSession(),
+          "Session check",
+          8000
+        );
 
-      if (!alive) return;
+        if (!alive) return;
 
-      const nextUser = data.user ?? null;
-      setUser(nextUser);
-      setChecking(false);
+        const nextUser = data.session?.user ?? null;
+        setUser(nextUser);
 
-      if (nextUser) {
-        await ensureProfileFromUser(nextUser);
-        router.replace("/account");
+        if (nextUser) {
+          await ensureProfileFromUser(nextUser);
+          router.replace("/account");
+          return;
+        }
+      } catch {
+        if (alive) {
+          setUser(null);
+        }
+      } finally {
+        if (alive) {
+          setChecking(false);
+        }
       }
     }
 
@@ -74,6 +109,7 @@ export default function AuthPage() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       const nextUser = session?.user ?? null;
+
       setUser(nextUser);
 
       if (nextUser) {
@@ -95,7 +131,7 @@ export default function AuthPage() {
   const cleanedEmail = email.trim().toLowerCase();
   const displayName = `${cleanedFirstName} ${cleanedLastName}`.trim();
 
-  const issues = passwordIssues(password);
+  const issues = useMemo(() => passwordIssues(password), [password]);
   const passwordIsStrong = issues.length === 0;
   const passwordsMatch = password === confirmPassword && confirmPassword.length > 0;
 
@@ -120,7 +156,7 @@ export default function AuthPage() {
       (nextUser.user_metadata?.display_name as string | undefined)?.trim() ||
       `${metaFirst} ${metaLast}`.trim() ||
       nextUser.email?.split("@")[0] ||
-      "Receipt Splitter User";
+      "KKB Splitter User";
 
     await supabase.from("profiles").upsert(
       {
@@ -181,6 +217,9 @@ export default function AuthPage() {
 
     setMessage("Account created. Please confirm your email, then sign in.");
     setMessageTone("success");
+    setMode("login");
+    setPassword("");
+    setConfirmPassword("");
   }
 
   async function signIn() {
@@ -205,7 +244,9 @@ export default function AuthPage() {
     router.replace("/account");
   }
 
-  async function onSubmit() {
+  async function onSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+
     if (!canSubmit || submitting) return;
 
     if (mode === "register") {
@@ -228,174 +269,202 @@ export default function AuthPage() {
 
   if (checking || user) {
     return (
-      <main className="grid min-h-screen place-items-center bg-zinc-50 px-4 dark:bg-zinc-950">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-5 text-sm text-zinc-500 shadow-sm dark:border-white/10 dark:bg-white/5 dark:text-zinc-400">
-          Opening Receipt Splitter...
+      <main className="grid min-h-dvh place-items-center bg-[#f6f7f4] px-4 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-50">
+        <div className="rounded-3xl border border-zinc-200 bg-white px-5 py-4 text-sm font-medium text-zinc-500 shadow-sm dark:border-white/10 dark:bg-white/5 dark:text-zinc-400">
+          Opening KKB Splitter...
         </div>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(to_bottom,#ffffff,#f6f7f8)] px-4 py-8 text-zinc-950 dark:bg-[linear-gradient(to_bottom,#09090b,#18181b)] dark:text-zinc-50 sm:px-6">
+    <main className="min-h-dvh bg-[#f6f7f4] px-3 py-4 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-50 sm:px-6 sm:py-8">
       <div className="mx-auto max-w-5xl">
-        <div className="mb-6 flex items-center justify-between gap-3">
+        <header className="mb-3 flex items-center justify-between gap-3 sm:mb-6">
           <Link
             href="/"
-            className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium shadow-sm transition hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
+            className="inline-flex h-10 items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold shadow-sm transition hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10 sm:px-4"
           >
             ← Back
           </Link>
 
           <div className="text-right">
-            <div className="text-sm font-semibold">Receipt Splitter</div>
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">Guest mode available</div>
+            <div className="text-sm font-bold leading-tight">KKB Splitter</div>
+            <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+              Guest mode available
+            </div>
           </div>
-        </div>
+        </header>
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_0.95fr]">
-          <section className="rounded-[2rem] border border-zinc-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/[0.04]">
-            <div className="inline-flex items-center rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-[11px] font-semibold text-teal-900 dark:border-teal-500/20 dark:bg-teal-500/10 dark:text-teal-100">
-              Optional account
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,0.95fr)_minmax(390px,0.75fr)] lg:gap-6">
+          <section className="overflow-hidden rounded-[1.75rem] border border-zinc-200 bg-white shadow-sm dark:border-white/10 dark:bg-white/[0.04]">
+            <div className="bg-gradient-to-br from-teal-600 via-teal-600 to-cyan-700 px-5 py-5 text-white sm:px-7 sm:py-7">
+              <div className="inline-flex rounded-full bg-white/15 px-3 py-1 text-[11px] font-semibold ring-1 ring-white/20">
+                Optional account
+              </div>
+
+              <h1 className="mt-3 text-2xl font-bold tracking-tight sm:text-4xl">
+                Save your KKB history
+              </h1>
+
+              <p className="mt-2 max-w-xl text-sm leading-6 text-teal-50/90">
+                Use the splitter as guest anytime. Sign in only when you want cloud saves,
+                folders, and group tracking.
+              </p>
+
+              <div className="mt-4 grid grid-cols-4 gap-2 sm:max-w-xl">
+                <MiniBenefit icon="☁️" label="Cloud" />
+                <MiniBenefit icon="🕘" label="History" />
+                <MiniBenefit icon="👥" label="Groups" />
+                <MiniBenefit icon="🔗" label="Share" />
+              </div>
             </div>
 
-            <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
-              Save your receipt splits
-            </h1>
-
-            <p className="mt-3 max-w-lg text-sm leading-6 text-zinc-600 dark:text-zinc-300">
-              Use the app for free without signing in. Create an account only when you want saved
-              history, cloud access, and shared group features.
-            </p>
-
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              <FeatureCard title="Cloud save" body="Access saved splits later." icon="☁️" />
-              <FeatureCard title="History" body="Review previous receipts." icon="🕘" />
-              <FeatureCard title="Groups" body="Organize shared bills." icon="👥" />
-              <FeatureCard title="Sharing" body="Collaborate later." icon="🤝" />
+            <div className="hidden p-5 lg:block">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <FeatureCard title="Cloud save" body="Open saved splits later." icon="☁️" />
+                <FeatureCard title="Group spaces" body="Track shared trips and events." icon="👥" />
+                <FeatureCard title="Folders" body="Organize food runs, travel, and games." icon="🗂️" />
+                <FeatureCard title="Faster sharing" body="Keep everyone updated." icon="🔗" />
+              </div>
             </div>
           </section>
 
-          <section className="rounded-[2rem] border border-zinc-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-zinc-950/90 sm:p-5">
-            <div className="mb-5">
-              <div className="text-base font-semibold">
-                {mode === "register" ? "Create account" : "Sign in"}
-              </div>
-              <div className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                {mode === "register"
-                  ? "Save receipts and access them later."
-                  : "Welcome back."}
-              </div>
-            </div>
-
+          <section className="rounded-[1.75rem] border border-zinc-200 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-zinc-950/90 sm:p-5">
             <div className="grid grid-cols-2 gap-1 rounded-2xl border border-zinc-200 bg-zinc-50 p-1 dark:border-white/10 dark:bg-white/5">
-              <button
-                type="button"
-                onClick={() => switchMode("register")}
-                className={[
-                  "rounded-xl px-3 py-2.5 text-sm font-semibold transition",
-                  mode === "register"
-                    ? "bg-zinc-950 text-white shadow-sm dark:bg-white dark:text-zinc-950"
-                    : "text-zinc-600 hover:bg-white dark:text-zinc-300 dark:hover:bg-white/10",
-                ].join(" ")}
-              >
-                Create account
-              </button>
-
               <button
                 type="button"
                 onClick={() => switchMode("login")}
                 className={[
-                  "rounded-xl px-3 py-2.5 text-sm font-semibold transition",
+                  "rounded-xl px-3 py-2.5 text-sm font-bold transition",
                   mode === "login"
-                    ? "bg-zinc-950 text-white shadow-sm dark:bg-white dark:text-zinc-950"
+                    ? "bg-teal-600 text-white shadow-sm"
                     : "text-zinc-600 hover:bg-white dark:text-zinc-300 dark:hover:bg-white/10",
                 ].join(" ")}
               >
                 Sign in
               </button>
 
-              <Link
-                href="/auth/forgot"
-                className="text-sm font-semibold text-teal-700 hover:text-teal-800"
+              <button
+                type="button"
+                onClick={() => switchMode("register")}
+                className={[
+                  "rounded-xl px-3 py-2.5 text-sm font-bold transition",
+                  mode === "register"
+                    ? "bg-teal-600 text-white shadow-sm"
+                    : "text-zinc-600 hover:bg-white dark:text-zinc-300 dark:hover:bg-white/10",
+                ].join(" ")}
               >
-                Forgot password?
-              </Link>
+                Create
+              </button>
             </div>
 
-            <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4 dark:border-white/10 dark:bg-zinc-950/40">
+            <div className="px-1 pt-4">
+              <h2 className="text-xl font-bold tracking-tight">
+                {mode === "register" ? "Create account" : "Welcome back"}
+              </h2>
+
+              <p className="mt-1 text-sm leading-5 text-zinc-500 dark:text-zinc-400">
+                {mode === "register"
+                  ? "Save your receipts, folders, groups, and split history."
+                  : "Sign in to continue to your saved splits and groups."}
+              </p>
+            </div>
+
+            <form onSubmit={onSubmit} className="mt-4 space-y-3">
               {mode === "register" ? (
-                <div className="mb-4 grid gap-3 sm:grid-cols-2">
+                <div className="grid grid-cols-2 gap-2">
                   <Field label="First name">
                     <Input
+                      id="first-name"
+                      name="firstName"
                       value={firstName}
                       onChange={setFirstName}
-                      placeholder="First name"
+                      placeholder="First"
                       type="text"
+                      autoComplete="given-name"
                     />
                   </Field>
 
                   <Field label="Last name">
                     <Input
+                      id="last-name"
+                      name="lastName"
                       value={lastName}
                       onChange={setLastName}
-                      placeholder="Last name"
+                      placeholder="Last"
                       type="text"
+                      autoComplete="family-name"
                     />
                   </Field>
                 </div>
               ) : null}
 
-              <div className="space-y-4">
-                <Field label="Email">
-                  <Input
-                    value={email}
-                    onChange={setEmail}
-                    placeholder="you@example.com"
-                    type="email"
-                  />
-                </Field>
+              <Field label="Email">
+                <Input
+                  id="email"
+                  name="email"
+                  value={email}
+                  onChange={setEmail}
+                  placeholder="you@example.com"
+                  type="email"
+                  autoComplete="email"
+                />
+              </Field>
 
-                <Field label="Password">
-                  <PasswordInput
-                    value={password}
-                    onChange={setPassword}
-                    show={showPassword}
-                    setShow={setShowPassword}
-                    placeholder="Password"
-                  />
-                </Field>
+              <Field label="Password">
+                <PasswordInput
+                  id="password"
+                  name="password"
+                  value={password}
+                  onChange={setPassword}
+                  show={showPassword}
+                  setShow={setShowPassword}
+                  placeholder="Password"
+                  autoComplete={mode === "register" ? "new-password" : "current-password"}
+                />
+              </Field>
 
-                {mode === "register" ? (
-                  <>
-                    <Field label="Retype password">
-                      <PasswordInput
-                        value={confirmPassword}
-                        onChange={setConfirmPassword}
-                        show={showConfirmPassword}
-                        setShow={setShowConfirmPassword}
-                        placeholder="Retype password"
-                      />
-                    </Field>
-
-                    <PasswordChecklist
-                      password={password}
-                      passwordsMatch={passwordsMatch}
-                      confirmPassword={confirmPassword}
+              {mode === "register" ? (
+                <>
+                  <Field label="Retype password">
+                    <PasswordInput
+                      id="confirm-password"
+                      name="confirmPassword"
+                      value={confirmPassword}
+                      onChange={setConfirmPassword}
+                      show={showConfirmPassword}
+                      setShow={setShowConfirmPassword}
+                      placeholder="Retype password"
+                      autoComplete="new-password"
                     />
-                  </>
-                ) : null}
-              </div>
+                  </Field>
+
+                  <PasswordChecklist
+                    password={password}
+                    passwordsMatch={passwordsMatch}
+                    confirmPassword={confirmPassword}
+                  />
+                </>
+              ) : (
+                <div className="flex justify-end">
+                  <Link
+                    href="/auth/forgot"
+                    className="text-xs font-bold text-teal-700 transition hover:text-teal-800 dark:text-teal-300"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
+              )}
 
               <button
-                type="button"
-                onClick={onSubmit}
+                type="submit"
                 disabled={!canSubmit || submitting}
                 className={[
-                  "mt-5 w-full rounded-2xl border px-4 py-3 text-sm font-semibold transition",
+                  "w-full rounded-2xl px-4 py-3 text-sm font-bold shadow-sm transition",
                   canSubmit && !submitting
-                    ? "border-teal-200 bg-teal-50 text-teal-900 hover:bg-teal-100 dark:border-teal-500/20 dark:bg-teal-500/10 dark:text-teal-100 dark:hover:bg-teal-500/15"
-                    : "cursor-not-allowed border-zinc-200 bg-zinc-100 text-zinc-400 dark:border-white/10 dark:bg-white/5 dark:text-zinc-500",
+                    ? "bg-teal-600 text-white hover:bg-teal-700"
+                    : "cursor-not-allowed bg-zinc-100 text-zinc-400 dark:bg-white/5 dark:text-zinc-500",
                 ].join(" ")}
               >
                 {submitting
@@ -406,7 +475,38 @@ export default function AuthPage() {
                     ? "Create account"
                     : "Sign in"}
               </button>
-            </div>
+
+              <Link
+                href="/"
+                className="block w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-center text-sm font-bold text-zinc-700 transition hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-100 dark:hover:bg-white/10"
+              >
+                Continue as guest
+              </Link>
+            </form>
+
+            {mode === "register" ? (
+              <div className="mt-3 text-center text-xs text-zinc-500 dark:text-zinc-400">
+                Already have an account?{" "}
+                <button
+                  type="button"
+                  onClick={() => switchMode("login")}
+                  className="font-bold text-teal-700 hover:text-teal-800 dark:text-teal-300"
+                >
+                  Sign in
+                </button>
+              </div>
+            ) : (
+              <div className="mt-3 text-center text-xs text-zinc-500 dark:text-zinc-400">
+                New here?{" "}
+                <button
+                  type="button"
+                  onClick={() => switchMode("register")}
+                  className="font-bold text-teal-700 hover:text-teal-800 dark:text-teal-300"
+                >
+                  Create an account
+                </button>
+              </div>
+            )}
 
             {message ? <Message tone={messageTone}>{message}</Message> : null}
           </section>
@@ -417,23 +517,32 @@ export default function AuthPage() {
 }
 
 function Input({
+  id,
+  name,
   value,
   onChange,
   placeholder,
   type,
+  autoComplete,
 }: {
+  id: string;
+  name: string;
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
   type: string;
+  autoComplete?: string;
 }) {
   return (
     <input
+      id={id}
+      name={name}
       type={type}
       value={value}
+      autoComplete={autoComplete}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-200/60 dark:border-white/10 dark:bg-zinc-950/40 dark:focus:border-teal-300 dark:focus:ring-teal-400/20"
+      className="w-full rounded-2xl border border-zinc-200 bg-white px-3.5 py-3 text-sm text-zinc-950 outline-none transition placeholder:text-zinc-400 focus:border-teal-400 focus:ring-4 focus:ring-teal-200/45 dark:border-white/10 dark:bg-zinc-950/40 dark:text-zinc-50 dark:focus:border-teal-300 dark:focus:ring-teal-400/20"
     />
   );
 }
@@ -447,7 +556,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+      <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
         {label}
       </span>
       {children}
@@ -456,26 +565,35 @@ function Field({
 }
 
 function PasswordInput({
+  id,
+  name,
   value,
   onChange,
   show,
   setShow,
   placeholder,
+  autoComplete,
 }: {
+  id: string;
+  name: string;
   value: string;
   onChange: (value: string) => void;
   show: boolean;
   setShow: (value: boolean) => void;
   placeholder: string;
+  autoComplete?: string;
 }) {
   return (
     <div className="relative">
       <input
+        id={id}
+        name={name}
         type={show ? "text" : "password"}
         value={value}
+        autoComplete={autoComplete}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-3 pr-12 text-sm outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-200/60 dark:border-white/10 dark:bg-zinc-950/40 dark:focus:border-teal-300 dark:focus:ring-teal-400/20"
+        className="w-full rounded-2xl border border-zinc-200 bg-white px-3.5 py-3 pr-12 text-sm text-zinc-950 outline-none transition placeholder:text-zinc-400 focus:border-teal-400 focus:ring-4 focus:ring-teal-200/45 dark:border-white/10 dark:bg-zinc-950/40 dark:text-zinc-50 dark:focus:border-teal-300 dark:focus:ring-teal-400/20"
       />
 
       <button
@@ -483,7 +601,7 @@ function PasswordInput({
         onClick={() => setShow(!show)}
         aria-label={show ? "Hide password" : "Show password"}
         title={show ? "Hide password" : "Show password"}
-        className="absolute right-2 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300 dark:hover:bg-white/10 dark:hover:text-white"
+        className="absolute right-2 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-xl bg-zinc-100 text-zinc-500 transition hover:bg-zinc-200 hover:text-zinc-700 dark:bg-white/10 dark:text-zinc-300 dark:hover:bg-white/15 dark:hover:text-white"
       >
         {show ? <EyeOffIcon /> : <EyeIcon />}
       </button>
@@ -502,17 +620,13 @@ function PasswordChecklist({
 }) {
   return (
     <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3 dark:border-white/10 dark:bg-white/5">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-        Password
-      </div>
-
-      <div className="mt-3 grid gap-1.5 text-[12px]">
-        <ChecklistItem done={password.length >= 8}>8+ characters</ChecklistItem>
-        <ChecklistItem done={/[A-Z]/.test(password)}>Uppercase letter</ChecklistItem>
-        <ChecklistItem done={/[a-z]/.test(password)}>Lowercase letter</ChecklistItem>
+      <div className="grid grid-cols-2 gap-1.5 text-[11px] sm:grid-cols-3">
+        <ChecklistItem done={password.length >= 8}>8+ chars</ChecklistItem>
+        <ChecklistItem done={/[A-Z]/.test(password)}>Uppercase</ChecklistItem>
+        <ChecklistItem done={/[a-z]/.test(password)}>Lowercase</ChecklistItem>
         <ChecklistItem done={/[0-9]/.test(password)}>Number</ChecklistItem>
-        <ChecklistItem done={passwordsMatch}>
-          {confirmPassword ? "Passwords match" : "Passwords match"}
+        <ChecklistItem done={passwordsMatch && !!confirmPassword}>
+          Match
         </ChecklistItem>
       </div>
     </div>
@@ -529,17 +643,28 @@ function ChecklistItem({
   return (
     <div
       className={[
-        "flex items-center gap-2",
-        done ? "text-teal-700 dark:text-teal-200" : "text-zinc-500 dark:text-zinc-400",
+        "flex items-center gap-1.5 rounded-full px-2 py-1",
+        done
+          ? "bg-teal-50 text-teal-700 dark:bg-teal-500/10 dark:text-teal-200"
+          : "bg-white text-zinc-500 dark:bg-white/5 dark:text-zinc-400",
       ].join(" ")}
     >
       <span
         className={[
-          "inline-block h-2.5 w-2.5 rounded-full",
+          "inline-block h-2 w-2 rounded-full",
           done ? "bg-teal-500" : "bg-zinc-300 dark:bg-zinc-600",
         ].join(" ")}
       />
-      <span>{children}</span>
+      <span className="truncate font-semibold">{children}</span>
+    </div>
+  );
+}
+
+function MiniBenefit({ icon, label }: { icon: string; label: string }) {
+  return (
+    <div className="rounded-2xl bg-white/15 px-2 py-2 text-center ring-1 ring-white/20">
+      <div className="text-lg leading-none">{icon}</div>
+      <div className="mt-1 text-[10px] font-bold text-white">{label}</div>
     </div>
   );
 }
@@ -554,10 +679,12 @@ function FeatureCard({
   body: string;
 }) {
   return (
-    <div className="rounded-3xl border border-zinc-200 bg-white p-4 dark:border-white/10 dark:bg-white/5">
+    <div className="rounded-3xl border border-zinc-200 bg-[#fbfbf8] p-4 dark:border-white/10 dark:bg-white/5">
       <div className="text-2xl">{icon}</div>
-      <div className="mt-3 text-sm font-semibold">{title}</div>
-      <div className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{body}</div>
+      <div className="mt-3 text-sm font-bold">{title}</div>
+      <div className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+        {body}
+      </div>
     </div>
   );
 }

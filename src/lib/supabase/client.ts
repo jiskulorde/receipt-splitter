@@ -24,7 +24,7 @@ export function supabaseBrowser() {
 export function withTimeout<T>(
   promise: Promise<T>,
   label: string,
-  ms = 12000
+  ms = 10000
 ): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => {
@@ -43,43 +43,104 @@ export function withTimeout<T>(
   });
 }
 
+function deleteCookie(name: string) {
+  if (typeof window === "undefined") return;
+
+  const hostname = window.location.hostname;
+  const parts = hostname.split(".");
+  const domains = new Set<string>();
+
+  domains.add(hostname);
+
+  if (parts.length >= 2) {
+    domains.add(`.${parts.slice(-2).join(".")}`);
+  }
+
+  if (parts.length >= 3) {
+    domains.add(`.${parts.slice(-3).join(".")}`);
+  }
+
+  document.cookie = `${name}=; Max-Age=0; path=/;`;
+  document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/;`;
+
+  domains.forEach((domain) => {
+    document.cookie = `${name}=; Max-Age=0; path=/; domain=${domain};`;
+    document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=${domain};`;
+  });
+}
+
 export function clearSupabaseAuthStorage() {
   if (typeof window === "undefined") return;
 
   try {
     for (const key of Object.keys(window.localStorage)) {
+      const lowered = key.toLowerCase();
+
       if (
         key.startsWith("sb-") ||
-        key.includes("supabase") ||
-        key.includes("auth-token")
+        lowered.includes("supabase") ||
+        lowered.includes("auth-token")
       ) {
         window.localStorage.removeItem(key);
       }
     }
+  } catch {
+    // ignore
+  }
 
+  try {
     for (const key of Object.keys(window.sessionStorage)) {
+      const lowered = key.toLowerCase();
+
       if (
         key.startsWith("sb-") ||
-        key.includes("supabase") ||
-        key.includes("auth-token")
+        lowered.includes("supabase") ||
+        lowered.includes("auth-token")
       ) {
         window.sessionStorage.removeItem(key);
       }
     }
   } catch {
-    // Ignore storage cleanup errors.
+    // ignore
+  }
+
+  try {
+    document.cookie.split(";").forEach((cookie) => {
+      const name = cookie.split("=")[0]?.trim();
+
+      if (!name) return;
+
+      const lowered = name.toLowerCase();
+
+      if (
+        name.startsWith("sb-") ||
+        lowered.includes("supabase") ||
+        lowered.includes("auth-token")
+      ) {
+        deleteCookie(name);
+      }
+    });
+  } catch {
+    // ignore
   }
 }
 
 export async function forceLocalSignOut() {
+  /*
+    Important:
+    Clear browser storage FIRST.
+    If the Supabase session is stale, signOut can also hang.
+  */
+  clearSupabaseAuthStorage();
+
   try {
     await withTimeout(
       supabase.auth.signOut({ scope: "local" }),
       "Local sign out",
-      4000
+      3000
     );
   } catch {
-    // Still clear local browser auth below.
+    // local storage/cookies were already cleared above
   } finally {
     clearSupabaseAuthStorage();
   }
