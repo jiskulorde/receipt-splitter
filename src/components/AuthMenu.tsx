@@ -1,37 +1,28 @@
 /* src/components/AuthMenu.tsx */
 "use client";
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabaseBrowser } from "@/src/lib/supabase/client";
+import { getMyProfile, type KkbProfile } from "@/src/lib/profiles";
+import ProfileAvatar from "@/src/components/ProfileAvatar";
 
 type Props = {
   variant?: "compact" | "full";
 };
 
-function getDisplayName(user: User | null) {
-  if (!user) return "";
+function getDisplayName(user: User | null, profile: KkbProfile | null) {
+  if (!user && !profile) return "";
 
-  const metaName =
-    (user.user_metadata?.display_name as string | undefined) ||
-    (user.user_metadata?.name as string | undefined) ||
-    "";
-
-  return metaName || user.email?.split("@")[0] || "Account";
-}
-
-function getInitials(text: string) {
-  const clean = text.trim();
-  if (!clean) return "A";
-
-  const parts = clean.split(/\s+/).filter(Boolean);
-
-  if (parts.length >= 2) {
-    return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-  }
-
-  return clean.slice(0, 1).toUpperCase();
+  return (
+    profile?.display_name ||
+    (user?.user_metadata?.display_name as string | undefined) ||
+    (user?.user_metadata?.name as string | undefined) ||
+    user?.email?.split("@")[0] ||
+    "Account"
+  );
 }
 
 export default function AuthMenu({ variant = "compact" }: Props) {
@@ -39,6 +30,7 @@ export default function AuthMenu({ variant = "compact" }: Props) {
 
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<KkbProfile | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -51,15 +43,41 @@ export default function AuthMenu({ variant = "compact" }: Props) {
       if (!alive) return;
 
       setUser(data.user ?? null);
-      setLoading(false);
+
+      if (data.user) {
+        try {
+          const nextProfile = await getMyProfile();
+          if (alive) setProfile(nextProfile);
+        } catch {
+          if (alive) setProfile(null);
+        }
+      } else {
+        setProfile(null);
+      }
+
+      if (alive) setLoading(false);
     }
 
     loadUser();
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const nextUser = session?.user ?? null;
+
+      setUser(nextUser);
+
+      if (nextUser) {
+        try {
+          const nextProfile = await getMyProfile();
+          setProfile(nextProfile);
+        } catch {
+          setProfile(null);
+        }
+      } else {
+        setProfile(null);
+      }
+
       setLoading(false);
     });
 
@@ -70,7 +88,11 @@ export default function AuthMenu({ variant = "compact" }: Props) {
   }, [supabase]);
 
   const signedIn = !!user;
-  const displayName = useMemo(() => getDisplayName(user), [user]);
+  const displayName = useMemo(
+    () => getDisplayName(user, profile),
+    [user, profile]
+  );
+
   const href = signedIn ? "/account" : "/auth";
 
   if (variant === "full") {
@@ -86,9 +108,11 @@ export default function AuthMenu({ variant = "compact" }: Props) {
           </>
         ) : signedIn ? (
           <>
-            <span className="grid h-6 w-6 place-items-center rounded-full bg-zinc-950 text-[10px] font-bold text-white dark:bg-white dark:text-zinc-950">
-              {getInitials(displayName)}
-            </span>
+            <ProfileAvatar
+              name={displayName}
+              avatarUrl={profile?.avatar_url}
+              size="sm"
+            />
             <span className="truncate">Account</span>
           </>
         ) : (
@@ -114,9 +138,11 @@ export default function AuthMenu({ variant = "compact" }: Props) {
         </>
       ) : signedIn ? (
         <>
-          <span className="grid h-6 w-6 place-items-center rounded-full bg-zinc-950 text-[10px] font-bold text-white dark:bg-white dark:text-zinc-950">
-            {getInitials(displayName)}
-          </span>
+          <ProfileAvatar
+            name={displayName}
+            avatarUrl={profile?.avatar_url}
+            size="sm"
+          />
           <span className="hidden sm:inline">Account</span>
         </>
       ) : (

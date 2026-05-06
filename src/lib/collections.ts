@@ -14,6 +14,7 @@ export type KkbCollection = {
   emoji: string;
   color: string;
   purpose: SplitPurpose;
+  cover_url: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -48,9 +49,10 @@ export async function getCollection(collectionId: string) {
 export async function createCollection(input: {
   name: string;
   description?: string;
-  purpose: SplitPurpose;
+  purpose?: SplitPurpose;
   emoji?: string;
   color?: string;
+  coverUrl?: string | null;
   groupId?: string | null;
 }) {
   const supabase = supabaseBrowser();
@@ -63,19 +65,86 @@ export async function createCollection(input: {
   if (userError) throw userError;
   if (!user) throw new Error("Please sign in first.");
 
-  const purpose = getPurposeOption(input.purpose);
+  const cleanedName = input.name.trim();
+
+  if (!cleanedName) {
+    throw new Error("Folder name is required.");
+  }
+
+  const selectedPurpose = input.purpose ?? "custom";
+  const purpose = getPurposeOption(selectedPurpose);
 
   const { data, error } = await supabase
     .from("collections")
     .insert({
       owner_id: user.id,
       group_id: input.groupId ?? null,
-      name: input.name.trim(),
+      name: cleanedName,
       description: input.description?.trim() || null,
-      purpose: input.purpose,
-      emoji: input.emoji || purpose.emoji,
+      purpose: selectedPurpose,
+      emoji: input.emoji || purpose.emoji || "🗂️",
       color: input.color || "teal",
+      cover_url: input.coverUrl ?? null,
     })
+    .select("*")
+    .single();
+
+  if (error) throw error;
+
+  return data as KkbCollection;
+}
+
+export async function updateCollection(input: {
+  id: string;
+  name?: string;
+  description?: string | null;
+  purpose?: SplitPurpose;
+  emoji?: string;
+  color?: string;
+  coverUrl?: string | null;
+}) {
+  const supabase = supabaseBrowser();
+
+  const patch: Record<string, unknown> = {};
+
+  if (input.name !== undefined) {
+    const cleanedName = input.name.trim();
+
+    if (!cleanedName) {
+      throw new Error("Folder name is required.");
+    }
+
+    patch.name = cleanedName;
+  }
+
+  if (input.description !== undefined) {
+    patch.description = input.description?.trim() || null;
+  }
+
+  if (input.purpose !== undefined) {
+    patch.purpose = input.purpose;
+
+    if (input.emoji === undefined) {
+      patch.emoji = getPurposeOption(input.purpose).emoji;
+    }
+  }
+
+  if (input.emoji !== undefined) {
+    patch.emoji = input.emoji || "🗂️";
+  }
+
+  if (input.color !== undefined) {
+    patch.color = input.color || "teal";
+  }
+
+  if (input.coverUrl !== undefined) {
+    patch.cover_url = input.coverUrl || null;
+  }
+
+  const { data, error } = await supabase
+    .from("collections")
+    .update(patch)
+    .eq("id", input.id)
     .select("*")
     .single();
 

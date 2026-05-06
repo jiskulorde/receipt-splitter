@@ -7,6 +7,9 @@ export type KkbGroup = {
   id: string;
   name: string;
   owner_id: string;
+  emoji: string;
+  photo_url: string | null;
+  description: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -17,6 +20,8 @@ export type KkbProfile = {
   display_name: string | null;
   first_name?: string | null;
   last_name?: string | null;
+  avatar_url?: string | null;
+  bio?: string | null;
 };
 
 export type KkbGroupMember = {
@@ -54,8 +59,21 @@ export async function getGroup(groupId: string) {
   return data as KkbGroup;
 }
 
-export async function createGroup(name: string) {
+export async function createGroup(
+  input:
+    | string
+    | {
+        name: string;
+        emoji?: string;
+        description?: string | null;
+      }
+) {
   const supabase = supabaseBrowser();
+
+  const name = typeof input === "string" ? input : input.name;
+  const emoji = typeof input === "string" ? "👥" : input.emoji || "👥";
+  const description =
+    typeof input === "string" ? null : input.description?.trim() || null;
 
   const cleaned = name.trim();
 
@@ -63,11 +81,66 @@ export async function createGroup(name: string) {
 
   const { data, error } = await supabase.rpc("create_receipt_group", {
     group_name: cleaned,
+    group_emoji: emoji,
+    group_description: description,
   });
 
   if (error) throw error;
 
   return data as string;
+}
+
+export async function updateGroup(input: {
+  id: string;
+  name?: string;
+  emoji?: string;
+  description?: string | null;
+  photoUrl?: string | null;
+}) {
+  const supabase = supabaseBrowser();
+
+  const patch: Record<string, unknown> = {};
+
+  if (input.name !== undefined) {
+    const cleanedName = input.name.trim();
+
+    if (!cleanedName) {
+      throw new Error("Group name is required.");
+    }
+
+    patch.name = cleanedName;
+  }
+
+  if (input.emoji !== undefined) {
+    patch.emoji = input.emoji || "👥";
+  }
+
+  if (input.description !== undefined) {
+    patch.description = input.description?.trim() || null;
+  }
+
+  if (input.photoUrl !== undefined) {
+    patch.photo_url = input.photoUrl || null;
+  }
+
+  const { data, error } = await supabase
+    .from("groups")
+    .update(patch)
+    .eq("id", input.id)
+    .select("*")
+    .single();
+
+  if (error) throw error;
+
+  return data as KkbGroup;
+}
+
+export async function deleteGroup(id: string) {
+  const supabase = supabaseBrowser();
+
+  const { error } = await supabase.from("groups").delete().eq("id", id);
+
+  if (error) throw error;
 }
 
 export async function listGroupMembers(groupId: string) {
@@ -94,7 +167,7 @@ export async function listGroupMembers(groupId: string) {
 
   const { data: profiles, error: profileError } = await supabase
     .from("profiles")
-    .select("id,email,display_name,first_name,last_name")
+    .select("id,email,display_name,first_name,last_name,avatar_url,bio")
     .in("id", ids);
 
   if (profileError) throw profileError;

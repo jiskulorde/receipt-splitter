@@ -34,6 +34,34 @@ export async function listCloudSaves() {
   return (data ?? []) as CloudSavedSplit[];
 }
 
+export async function listCloudSavesByCollection(collectionId: string) {
+  const supabase = supabaseBrowser();
+
+  const { data, error } = await supabase
+    .from("saved_splits")
+    .select("*")
+    .eq("collection_id", collectionId)
+    .order("updated_at", { ascending: false });
+
+  if (error) throw error;
+
+  return (data ?? []) as CloudSavedSplit[];
+}
+
+export async function listCloudSavesByGroup(groupId: string) {
+  const supabase = supabaseBrowser();
+
+  const { data, error } = await supabase
+    .from("saved_splits")
+    .select("*")
+    .eq("group_id", groupId)
+    .order("updated_at", { ascending: false });
+
+  if (error) throw error;
+
+  return (data ?? []) as CloudSavedSplit[];
+}
+
 export async function createCloudSave(input: {
   title: string;
   session: SplitSession;
@@ -69,6 +97,36 @@ export async function createCloudSave(input: {
       memory_note: input.memoryNote?.trim() || null,
       event_date: input.eventDate || null,
     })
+    .select("*")
+    .single();
+
+  if (error) throw error;
+
+  return data as CloudSavedSplit;
+}
+
+export async function updateCloudSaveCollection(input: {
+  saveId: string;
+  collectionId: string | null;
+  groupId?: string | null;
+}) {
+  const supabase = supabaseBrowser();
+
+  const patch: {
+    collection_id: string | null;
+    group_id?: string | null;
+  } = {
+    collection_id: input.collectionId,
+  };
+
+  if ("groupId" in input) {
+    patch.group_id = input.groupId ?? null;
+  }
+
+  const { data, error } = await supabase
+    .from("saved_splits")
+    .update(patch)
+    .eq("id", input.saveId)
     .select("*")
     .single();
 

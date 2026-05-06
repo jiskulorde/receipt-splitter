@@ -100,7 +100,18 @@ export default function TopBar() {
 
     if (typeof window !== "undefined") {
       window.history.replaceState(null, "", window.location.pathname);
-      window.dispatchEvent(new CustomEvent("rs:setTab", { detail: { tab: "people" } }));
+
+      window.dispatchEvent(new Event("kkb:normal-split:start"));
+
+      window.dispatchEvent(
+        new CustomEvent("rs:setTab", {
+          detail: { tab: "people" },
+        })
+      );
+
+      window.setTimeout(() => {
+        window.dispatchEvent(new Event("rs:openEditor"));
+      }, 80);
     }
 
     showToast("New split started");
@@ -112,6 +123,7 @@ export default function TopBar() {
     window.history.replaceState(null, "", `${window.location.pathname}?s=${param}`);
     setRecentOpen(false);
     setMobileOpen(false);
+    window.dispatchEvent(new Event("kkb:normal-split:start"));
     showToast("Loaded");
   }
 

@@ -1,10 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /* src/components/ReceiptActionsMenu.tsx */
 /* eslint-disable react-hooks/purity */
-/* eslint-disable react-hooks/set-state-in-effect */
-/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import Link from "next/link";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useSplit } from "@/src/components/SplitProvider";
 import type { SplitSession } from "@/src/lib/types";
@@ -15,10 +13,6 @@ import {
   upsertLocalSave,
   type LocalSave,
 } from "@/src/lib/sessionStore";
-import { supabaseBrowser } from "@/src/lib/supabase/client";
-import { createCloudSave } from "@/src/lib/cloudSaves";
-import { listCollections, type KkbCollection } from "@/src/lib/collections";
-import { PURPOSE_OPTIONS, getPurposeOption, type SplitPurpose } from "@/src/lib/purposes";
 
 export type ExportKey = "receipt" | "breakdown" | "settlement";
 
@@ -76,7 +70,9 @@ function printAreaById(elId: string) {
   const w = window.open("", "_blank", "width=900,height=1000");
   if (!w) return;
 
-  const styles = Array.from(document.querySelectorAll("style,link[rel=stylesheet]"))
+  const styles = Array.from(
+    document.querySelectorAll("style,link[rel=stylesheet]")
+  )
     .map((n) => (n as HTMLElement).outerHTML)
     .join("\n");
 
@@ -136,8 +132,7 @@ async function exportPngById(elId: string, filename: string) {
 }
 
 export default function ReceiptActionsMenu(props: Props) {
-  const { session } = useSplit() as any;
-  const supabase = supabaseBrowser();
+  const { session } = useSplit() as { session: SplitSession };
 
   const normalizedTargets: Target[] =
     "exportTargetId" in props
@@ -157,74 +152,17 @@ export default function ReceiptActionsMenu(props: Props) {
   const defaultKey: ExportKey =
     "exportTargetId" in props ? "receipt" : props.defaultKey ?? "receipt";
 
-  const onBeforeExport = "exportTargetId" in props ? undefined : props.onBeforeExport;
+  const onBeforeExport =
+    "exportTargetId" in props ? undefined : props.onBeforeExport;
 
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<ExportKey>(defaultKey);
   const [toast, setToast] = useState("");
-
-  const [signedIn, setSignedIn] = useState(false);
-  const [collections, setCollections] = useState<KkbCollection[]>([]);
-  const [cloudSaving, setCloudSaving] = useState(false);
-
-  const [cloudTitle, setCloudTitle] = useState("");
-  const [purpose, setPurpose] = useState<SplitPurpose>("restaurant");
-  const [collectionId, setCollectionId] = useState("");
-  const [memoryNote, setMemoryNote] = useState("");
-
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setSelected(defaultKey);
   }, [defaultKey]);
-
-  useEffect(() => {
-    const title = makeSaveTitle(session as SplitSession);
-    setCloudTitle(title === "Receipt Split" ? "KKB Split" : title);
-  }, [session]);
-
-  useEffect(() => {
-    let alive = true;
-
-    async function loadAuth() {
-      const { data } = await supabase.auth.getUser();
-      if (!alive) return;
-
-      const hasUser = !!data.user;
-      setSignedIn(hasUser);
-
-      if (hasUser) {
-        try {
-          const rows = await listCollections();
-          if (alive) setCollections(rows);
-        } catch {}
-      } else {
-        setCollections([]);
-      }
-    }
-
-    loadAuth();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, sessionData) => {
-      const hasUser = !!sessionData?.user;
-      setSignedIn(hasUser);
-
-      if (hasUser) {
-        try {
-          setCollections(await listCollections());
-        } catch {}
-      } else {
-        setCollections([]);
-      }
-    });
-
-    return () => {
-      alive = false;
-      subscription.unsubscribe();
-    };
-  }, [supabase]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -250,18 +188,14 @@ export default function ReceiptActionsMenu(props: Props) {
   }, [open]);
 
   const shareUrl = useMemo(() => {
-    const param = encodeSessionToParam(session as SplitSession);
+    const param = encodeSessionToParam(session);
     return `${getBaseUrl()}?s=${param}`;
   }, [session]);
 
-  const canSave = (session?.people?.length ?? 0) > 0 || (session?.items?.length ?? 0) > 0;
+  const canSave =
+    (session?.people?.length ?? 0) > 0 || (session?.items?.length ?? 0) > 0;
 
-  const selectedPurpose = getPurposeOption(purpose);
-
-  const selectedCollection = collectionId
-    ? collections.find((c) => c.id === collectionId)
-    : null;
-
+  const workspaceName = session?.meta?.groupName?.trim() || "";
   const getTarget = (k: ExportKey) =>
     normalizedTargets.find((t) => t.key === k) ?? normalizedTargets[0];
 
@@ -273,44 +207,17 @@ export default function ReceiptActionsMenu(props: Props) {
   const handleSaveLocal = () => {
     if (!canSave) return;
 
-    const title = makeSaveTitle(session as SplitSession);
+    const title = makeSaveTitle(session);
     const save: LocalSave = {
       id: newSaveId(),
       title: title === "Receipt Split" ? "KKB Split" : title,
       createdAt: Date.now(),
-      session: session as SplitSession,
+      session,
     };
 
     upsertLocalSave(save);
     showToast("Saved on this device");
     setOpen(false);
-  };
-
-  const handleSaveCloud = async () => {
-    if (!canSave || !signedIn) return;
-
-    setCloudSaving(true);
-
-    try {
-      await createCloudSave({
-        title: cloudTitle || "KKB Split",
-        session: session as SplitSession,
-        purpose,
-        collectionId: selectedCollection?.id ?? null,
-        groupId: selectedCollection?.group_id ?? null,
-        emoji: selectedPurpose.emoji,
-        memoryNote,
-        eventDate: new Date().toISOString().slice(0, 10),
-      });
-
-      setMemoryNote("");
-      showToast("Saved to cloud");
-      setOpen(false);
-    } catch (e: any) {
-      showToast(e?.message || "Cloud save failed");
-    } finally {
-      setCloudSaving(false);
-    }
   };
 
   const handleCopyLink = async () => {
@@ -319,34 +226,14 @@ export default function ReceiptActionsMenu(props: Props) {
     setOpen(false);
   };
 
-  const handleNativeShare = async () => {
-    try {
-      if (!navigator.share) {
-        await handleCopyLink();
-        return;
-      }
-
-      await navigator.share({
-        title: "KKB Splitter",
-        text: "Open this KKB split:",
-        url: shareUrl,
-      });
-
-      showToast("Share opened");
-      setOpen(false);
-    } catch {}
-  };
-
   const handleSaveImage = async (k: ExportKey) => {
     const t = getTarget(k);
 
     try {
       await onBeforeExport?.(k);
-
       const fname = `kkb-split-${k}-${Date.now()}.png`;
       await exportPngById(t.elId, fname);
-
-      showToast("Image saved");
+      showToast("PNG saved");
       setOpen(false);
     } catch (e: any) {
       const msg =
@@ -391,11 +278,15 @@ export default function ReceiptActionsMenu(props: Props) {
       ) : null}
 
       {open ? (
-        <div className="absolute right-0 top-[46px] z-40 w-[min(380px,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl dark:border-white/10 dark:bg-zinc-950">
-          <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2 dark:border-white/10">
+        <div className="absolute right-0 top-[46px] z-40 w-[min(340px,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl dark:border-white/10 dark:bg-zinc-950">
+          <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-white/10">
             <div>
-              <div className="text-sm font-semibold">Save & share</div>
-              <div className="text-[11px] text-zinc-500 dark:text-zinc-400">Local, cloud, link, or image.</div>
+              <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                Actions
+              </div>
+              <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                Share, export, or keep a local copy.
+              </div>
             </div>
 
             <button
@@ -408,104 +299,42 @@ export default function ReceiptActionsMenu(props: Props) {
             </button>
           </div>
 
-          <div className="max-h-[75vh] space-y-2 overflow-auto p-2">
-            <ActionButton
-              label="Save on this device"
-              description="Works without an account"
-              icon="💾"
-              disabled={!canSave}
-              onClick={handleSaveLocal}
-            />
-
-            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3 dark:border-white/10 dark:bg-white/5">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="text-xs font-semibold">Cloud save</div>
-                  <div className="mt-0.5 text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">
-                    Save to history, collection, or group collection.
-                  </div>
-                </div>
-                <span className="text-lg">{selectedPurpose.emoji}</span>
-              </div>
-
-              {!signedIn ? (
-                <Link
-                  href="/auth"
-                  className="mt-3 block rounded-2xl border border-teal-200 bg-teal-50 px-3 py-2.5 text-center text-xs font-semibold text-teal-900 hover:bg-teal-100 dark:border-teal-500/20 dark:bg-teal-500/10 dark:text-teal-100 dark:hover:bg-teal-500/15"
-                >
-                  Login to save to cloud
-                </Link>
-              ) : (
-                <div className="mt-3 space-y-2">
-                  <input
-                    value={cloudTitle}
-                    onChange={(e) => setCloudTitle(e.target.value)}
-                    placeholder="Save name"
-                    className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-200/60 dark:border-white/10 dark:bg-zinc-950/40"
-                  />
-
-                  <select
-                    value={purpose}
-                    onChange={(e) => setPurpose(e.target.value as SplitPurpose)}
-                    className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-200/60 dark:border-white/10 dark:bg-zinc-950/40"
-                  >
-                    {PURPOSE_OPTIONS.map((p) => (
-                      <option key={p.value} value={p.value}>
-                        {p.emoji} {p.label}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    value={collectionId}
-                    onChange={(e) => setCollectionId(e.target.value)}
-                    className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-200/60 dark:border-white/10 dark:bg-zinc-950/40"
-                  >
-                    <option value="">No collection</option>
-                    {collections.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.emoji} {c.name} {c.group_id ? "· Group" : ""}
-                      </option>
-                    ))}
-                  </select>
-
-                  <input
-                    value={memoryNote}
-                    onChange={(e) => setMemoryNote(e.target.value)}
-                    placeholder="Memory note, optional"
-                    className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-200/60 dark:border-white/10 dark:bg-zinc-950/40"
-                  />
-
-                  <button
-                    type="button"
-                    disabled={!canSave || cloudSaving}
-                    onClick={handleSaveCloud}
-                    className="w-full rounded-2xl border border-teal-200 bg-teal-50 px-3 py-2.5 text-xs font-semibold text-teal-900 hover:bg-teal-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-teal-500/20 dark:bg-teal-500/10 dark:text-teal-100 dark:hover:bg-teal-500/15"
-                  >
-                    {cloudSaving ? "Saving..." : "Save to cloud"}
-                  </button>
-                </div>
-              )}
+          <div className="max-h-[75vh] space-y-3 overflow-auto p-3">
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3 text-[11px] leading-5 text-zinc-600 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300">
+              {workspaceName
+                ? `Use the main Save button above if you want this split saved to ${workspaceName}.`
+                : `Use the main Save button above for your workspace save. This menu is for local save, sharing, and export.`}
             </div>
 
-            <ActionButton
-              label="Copy share link"
-              description="Anyone with the link can open this split"
-              icon="🔗"
-              onClick={handleCopyLink}
-            />
+            <section className="rounded-2xl border border-zinc-200 bg-white p-3 dark:border-white/10 dark:bg-zinc-950/40">
+              <div className="mb-2 text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                Quick actions
+              </div>
 
-            <ActionButton
-              label="Share"
-              description="Use mobile share sheet when available"
-              icon="📤"
-              onClick={handleNativeShare}
-            />
+              <div className="space-y-2">
+                <ActionButton
+                  label="Save on this device"
+                  description="Good for backup or offline use."
+                  icon="💾"
+                  disabled={!canSave}
+                  onClick={handleSaveLocal}
+                />
 
-            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3 dark:border-white/10 dark:bg-white/5">
-              <div className="text-xs font-semibold">Export section</div>
+                <ActionButton
+                  label="Copy share link"
+                  description="Send this split to your friends."
+                  icon="🔗"
+                  onClick={handleCopyLink}
+                />
+              </div>
+            </section>
 
-              <div className="mt-2 grid grid-cols-3 gap-1 rounded-2xl border border-zinc-200 bg-white p-1 dark:border-white/10 dark:bg-zinc-950/40">
+            <section className="rounded-2xl border border-zinc-200 bg-white p-3 dark:border-white/10 dark:bg-zinc-950/40">
+              <div className="mb-2 text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                Export
+              </div>
+
+              <div className="grid grid-cols-3 gap-1 rounded-2xl border border-zinc-200 bg-zinc-50 p-1 dark:border-white/10 dark:bg-white/5">
                 {normalizedTargets.map((t) => {
                   const active = selected === t.key;
 
@@ -517,8 +346,8 @@ export default function ReceiptActionsMenu(props: Props) {
                       className={[
                         "rounded-xl px-2 py-2 text-[11px] font-medium transition",
                         active
-                          ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900"
-                          : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-white/10",
+                          ? "bg-teal-600 text-white"
+                          : "text-zinc-600 hover:bg-white dark:text-zinc-300 dark:hover:bg-zinc-900",
                       ].join(" ")}
                     >
                       {t.label}
@@ -527,11 +356,11 @@ export default function ReceiptActionsMenu(props: Props) {
                 })}
               </div>
 
-              <div className="mt-2 grid grid-cols-2 gap-2">
+              <div className="mt-3 grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => handleSaveImage(selected)}
-                  className="rounded-2xl border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-900 hover:bg-teal-100 dark:border-teal-500/20 dark:bg-teal-500/10 dark:text-teal-100 dark:hover:bg-teal-500/15"
+                  className="rounded-2xl border border-teal-200 bg-teal-50 px-3 py-2.5 text-sm font-semibold text-teal-900 hover:bg-teal-100 dark:border-teal-500/20 dark:bg-teal-500/10 dark:text-teal-100 dark:hover:bg-teal-500/15"
                 >
                   Save PNG
                 </button>
@@ -539,16 +368,16 @@ export default function ReceiptActionsMenu(props: Props) {
                 <button
                   type="button"
                   onClick={() => handlePrint(selected)}
-                  className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950/40 dark:hover:bg-white/10"
+                  className="rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950/40 dark:text-zinc-100 dark:hover:bg-white/10"
                 >
                   Print
                 </button>
               </div>
-            </div>
+            </section>
 
             {!canSave ? (
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-[11px] leading-5 text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-100">
-                Add at least one person or item before saving.
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3 text-[11px] leading-5 text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-100">
+                Add at least one person or one item first.
               </div>
             ) : null}
           </div>
@@ -587,7 +416,9 @@ function ActionButton({
       </span>
 
       <span className="min-w-0">
-        <span className="block text-sm font-medium">{label}</span>
+        <span className="block text-sm font-medium text-zinc-900 dark:text-zinc-100">
+          {label}
+        </span>
         <span className="mt-0.5 block text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">
           {description}
         </span>

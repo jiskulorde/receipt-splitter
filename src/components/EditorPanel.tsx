@@ -20,7 +20,7 @@ const primaryButtonClass =
   "rounded-2xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50";
 
 const ghostButtonClass =
-  "rounded-2xl border border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-100 dark:hover:bg-white/10";
+  "rounded-2xl border border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:bg-white/5 dark:text-zinc-100 dark:hover:bg-white/10";
 
 const dangerButtonClass =
   "rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-100 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-200 dark:hover:bg-red-500/15";
@@ -40,6 +40,53 @@ function progressPercent(input: {
   if (input.items > 0 && input.totalDue > 0) score += 40;
   if (input.payments > 0) score += 30;
   return score;
+}
+
+function isDefaultPersonName(value: string) {
+  return /^Person\s+\d+$/i.test((value || "").trim());
+}
+
+function isDefaultItemName(value: string) {
+  return /^Item\s+\d+$/i.test((value || "").trim());
+}
+
+function getPersonInputValue(person: { name?: string }) {
+  const name = person.name ?? "";
+  return isDefaultPersonName(name) ? "" : name;
+}
+
+function getPersonDisplayName(person: { name?: string }, index: number) {
+  const name = person.name?.trim() ?? "";
+  if (!name || isDefaultPersonName(name)) return `Person ${index + 1}`;
+  return name;
+}
+
+function getItemPlaceholder(
+  item: { name?: string; placeholderName?: string },
+  index: number
+) {
+  return item.placeholderName || `Item ${index + 1}`;
+}
+
+function getItemInputValue(item: { name?: string }) {
+  const name = item.name ?? "";
+  return isDefaultItemName(name) ? "" : name;
+}
+
+function getItemDisplayName(
+  item: { name?: string; placeholderName?: string },
+  index: number
+) {
+  const name = item.name?.trim() ?? "";
+  if (!name || isDefaultItemName(name)) {
+    return item.placeholderName || `Item ${index + 1}`;
+  }
+  return name;
+}
+
+function itemIsPlaceholder(item: { name?: string }) {
+  const name = item.name?.trim() ?? "";
+  return !name || isDefaultItemName(name);
 }
 
 export default function EditorPanel({ compact = false }: { compact?: boolean }) {
@@ -189,8 +236,8 @@ export default function EditorPanel({ compact = false }: { compact?: boolean }) 
     <section
       id="editor-panel"
       className={[
-        "rounded-[1.75rem] border border-zinc-200 bg-white shadow-sm dark:border-white/10 dark:bg-white/[0.04]",
-        compact ? "p-3" : "p-4 sm:p-5",
+        "max-w-full overflow-hidden border border-zinc-200 bg-white shadow-sm dark:border-white/10 dark:bg-white/[0.04]",
+        compact ? "rounded-[1.35rem] p-3" : "rounded-[1.75rem] p-4 sm:p-5",
       ].join(" ")}
     >
       <div className="mb-3 flex items-start justify-between gap-3">
@@ -287,6 +334,7 @@ export default function EditorPanel({ compact = false }: { compact?: boolean }) 
             updateItem={updateItem}
             removeItem={removeItem}
             toggleItemPerson={toggleItemPerson}
+            compact={compact}
           />
         ) : null}
 
@@ -369,9 +417,9 @@ function PeopleTab({
 
                 <input
                   className={inputClass}
-                  value={person.name}
+                  value={getPersonInputValue(person)}
                   onChange={(e) => updatePerson(person.id, { name: e.target.value })}
-                  placeholder="Name"
+                  placeholder={`Person ${index + 1}`}
                 />
 
                 <button
@@ -409,11 +457,14 @@ function ItemsTab({
   updateItem,
   removeItem,
   toggleItemPerson,
+  compact = false,
 }: {
   people: Array<{ id: string; name: string }>;
   items: Array<{
     id: string;
     name: string;
+    placeholderName?: string;
+    hint?: string;
     unitPrice: number;
     qty: number;
     assignedPersonIds: string[];
@@ -422,30 +473,52 @@ function ItemsTab({
   updateItem: (id: string, patch: any) => void;
   removeItem: (id: string) => void;
   toggleItemPerson: (itemId: string, personId: string) => void;
+  compact?: boolean;
 }) {
-  const [activeId, setActiveId] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {
     if (items.length === 0) {
-      setActiveId("");
+      setActiveIndex(0);
       return;
     }
 
-    const stillExists = items.some((item) => item.id === activeId);
-    if (!activeId || !stillExists) {
-      setActiveId(items[0].id);
-    }
-  }, [items, activeId]);
+    setActiveIndex((current) => {
+      if (current < 0) return 0;
+      if (current > items.length - 1) return items.length - 1;
+      return current;
+    });
+  }, [items.length]);
 
-  const activeItem = items.find((item) => item.id === activeId) ?? items[0];
+  const activeItem = items[activeIndex] ?? items[0];
+  const safeActiveIndex = activeItem
+    ? Math.max(0, items.findIndex((item) => item.id === activeItem.id))
+    : 0;
 
   function handleAddItem() {
+    const nextIndex = items.length;
     addItem();
+    setActiveIndex(nextIndex);
   }
 
   function handleRemoveActive() {
     if (!activeItem) return;
+
     removeItem(activeItem.id);
+
+    setActiveIndex((current) => {
+      const nextLength = Math.max(0, items.length - 1);
+      if (nextLength === 0) return 0;
+      return Math.min(current, nextLength - 1);
+    });
+  }
+
+  function goPrevious() {
+    setActiveIndex((current) => Math.max(0, current - 1));
+  }
+
+  function goNext() {
+    setActiveIndex((current) => Math.min(items.length - 1, current + 1));
   }
 
   return (
@@ -466,22 +539,53 @@ function ItemsTab({
           onAction={handleAddItem}
         />
       ) : (
-        <div className="grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
-          <div className="lg:max-h-[520px] lg:overflow-y-auto">
-            <div className="-mx-1 overflow-x-auto pb-1 lg:mx-0 lg:overflow-visible lg:pb-0">
-              <div className="flex min-w-max gap-2 px-1 lg:block lg:min-w-0 lg:space-y-2 lg:px-0">
+        <div
+          className={
+            compact
+              ? "grid max-w-full gap-3 overflow-hidden"
+              : "grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)]"
+          }
+        >
+          <div
+            className={
+              compact
+                ? "max-w-full overflow-hidden"
+                : "lg:max-h-[520px] lg:overflow-y-auto"
+            }
+          >
+            <div
+              className={
+                compact
+                  ? "-mx-1 max-w-full overflow-x-auto overflow-y-hidden pb-1"
+                  : "-mx-1 overflow-x-auto pb-1 lg:mx-0 lg:overflow-visible lg:pb-0"
+              }
+            >
+              <div
+                className={
+                  compact
+                    ? "flex w-max gap-2 px-1"
+                    : "flex min-w-max gap-2 px-1 lg:block lg:min-w-0 lg:space-y-2 lg:px-0"
+                }
+              >
                 {items.map((item, index) => {
-                  const active = item.id === activeItem?.id;
+                  const active = index === activeIndex;
                   const lineTotal =
                     (Number(item.unitPrice) || 0) * (Number(item.qty) || 0);
+                  const placeholder = itemIsPlaceholder(item);
 
                   return (
                     <button
                       key={item.id}
                       type="button"
-                      onClick={() => setActiveId(item.id)}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setActiveIndex(index);
+                      }}
                       className={[
-                        "w-[150px] shrink-0 rounded-[1.2rem] border p-3 text-left transition lg:w-full",
+                        compact
+                          ? "w-[132px] shrink-0 rounded-[1.1rem] border p-2.5 text-left transition"
+                          : "w-[150px] shrink-0 rounded-[1.2rem] border p-3 text-left transition lg:w-full",
                         active
                           ? "border-teal-300 bg-teal-50 ring-2 ring-teal-100 dark:border-teal-400/30 dark:bg-teal-500/10 dark:ring-teal-400/10"
                           : "border-zinc-200 bg-[#fbfbf8] hover:border-teal-300 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10",
@@ -492,8 +596,17 @@ function ItemsTab({
                           <div className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">
                             Item {index + 1}
                           </div>
-                          <div className="mt-1 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                            {item.name || "Unnamed"}
+
+                          <div
+                            className={[
+                              "mt-1 truncate font-semibold",
+                              compact ? "text-xs" : "text-sm",
+                              placeholder
+                                ? "text-zinc-400 dark:text-zinc-500"
+                                : "text-zinc-900 dark:text-zinc-50",
+                            ].join(" ")}
+                          >
+                            {getItemDisplayName(item, index)}
                           </div>
                         </div>
 
@@ -513,14 +626,24 @@ function ItemsTab({
           </div>
 
           {activeItem ? (
-            <div className="rounded-[1.35rem] border border-zinc-200 bg-[#fbfbf8] p-3 dark:border-white/10 dark:bg-white/5">
+            <div
+              key={activeItem.id}
+              className="max-w-full overflow-hidden rounded-[1.35rem] border border-zinc-200 bg-[#fbfbf8] p-3 dark:border-white/10 dark:bg-white/5"
+            >
               <div className="mb-3 flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
                     Edit selected item
                   </div>
-                  <div className="mt-1 truncate text-xs text-zinc-500 dark:text-zinc-400">
-                    {activeItem.name || "Unnamed item"}
+                  <div
+                    className={[
+                      "mt-1 truncate text-xs",
+                      itemIsPlaceholder(activeItem)
+                        ? "text-zinc-400 dark:text-zinc-500"
+                        : "text-zinc-500 dark:text-zinc-400",
+                    ].join(" ")}
+                  >
+                    {getItemDisplayName(activeItem, safeActiveIndex)}
                   </div>
                 </div>
 
@@ -537,15 +660,21 @@ function ItemsTab({
                 <Field label="Item name">
                   <input
                     className={inputClass}
-                    value={activeItem.name}
+                    value={getItemInputValue(activeItem)}
                     onChange={(e) =>
                       updateItem(activeItem.id, { name: e.target.value })
                     }
-                    placeholder="Item name"
+                    placeholder={getItemPlaceholder(activeItem, safeActiveIndex)}
                   />
                 </Field>
 
-                <div className="grid grid-cols-3 gap-2">
+                {activeItem.hint ? (
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs leading-5 text-zinc-500 dark:border-white/10 dark:bg-zinc-950/40 dark:text-zinc-400">
+                    Example: {activeItem.hint}
+                  </div>
+                ) : null}
+
+                <div className={compact ? "grid grid-cols-2 gap-2" : "grid grid-cols-3 gap-2"}>
                   <Field label="Price">
                     <DecimalInput
                       value={activeItem.unitPrice}
@@ -572,14 +701,16 @@ function ItemsTab({
                     />
                   </Field>
 
-                  <Field label="Total">
-                    <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold dark:border-white/10 dark:bg-zinc-950/40">
-                      {peso(
-                        (Number(activeItem.unitPrice) || 0) *
-                          (Number(activeItem.qty) || 0)
-                      )}
-                    </div>
-                  </Field>
+                  <div className={compact ? "col-span-2" : ""}>
+                    <Field label="Total">
+                      <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold dark:border-white/10 dark:bg-zinc-950/40">
+                        {peso(
+                          (Number(activeItem.unitPrice) || 0) *
+                            (Number(activeItem.qty) || 0)
+                        )}
+                      </div>
+                    </Field>
+                  </div>
                 </div>
 
                 <div>
@@ -593,7 +724,7 @@ function ItemsTab({
                     </div>
                   ) : (
                     <div className="flex flex-wrap gap-2">
-                      {people.map((person) => {
+                      {people.map((person, index) => {
                         const active =
                           activeItem.assignedPersonIds?.includes(person.id);
 
@@ -601,7 +732,9 @@ function ItemsTab({
                           <button
                             key={person.id}
                             type="button"
-                            onClick={() => toggleItemPerson(activeItem.id, person.id)}
+                            onClick={() =>
+                              toggleItemPerson(activeItem.id, person.id)
+                            }
                             className={[
                               "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
                               active
@@ -609,7 +742,7 @@ function ItemsTab({
                                 : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950/40 dark:text-zinc-300 dark:hover:bg-white/10",
                             ].join(" ")}
                           >
-                            {person.name || "Unnamed"}
+                            {getPersonDisplayName(person, index)}
                           </button>
                         );
                       })}
@@ -625,13 +758,8 @@ function ItemsTab({
                   <button
                     type="button"
                     className={ghostButtonClass}
-                    onClick={() => {
-                      const currentIndex = items.findIndex(
-                        (item) => item.id === activeItem.id
-                      );
-                      const previous = items[Math.max(0, currentIndex - 1)];
-                      if (previous) setActiveId(previous.id);
-                    }}
+                    disabled={activeIndex <= 0}
+                    onClick={goPrevious}
                   >
                     Previous
                   </button>
@@ -639,13 +767,8 @@ function ItemsTab({
                   <button
                     type="button"
                     className={ghostButtonClass}
-                    onClick={() => {
-                      const currentIndex = items.findIndex(
-                        (item) => item.id === activeItem.id
-                      );
-                      const next = items[Math.min(items.length - 1, currentIndex + 1)];
-                      if (next) setActiveId(next.id);
-                    }}
+                    disabled={activeIndex >= items.length - 1}
+                    onClick={goNext}
                   >
                     Next
                   </button>
@@ -1090,10 +1213,12 @@ function DecimalInput({
   placeholder?: string;
 }) {
   const [text, setText] = useState(String(value ?? 0));
+  const [focused, setFocused] = useState(false);
 
   useEffect(() => {
+    if (focused) return;
     setText(String(value ?? 0));
-  }, [value]);
+  }, [value, focused]);
 
   return (
     <input
@@ -1102,6 +1227,12 @@ function DecimalInput({
       value={text}
       placeholder={placeholder}
       className={smallInputClass}
+      onFocus={() => {
+        setFocused(true);
+        if (Number(value) === 0 && text === "0") {
+          setText("");
+        }
+      }}
       onChange={(e) => {
         const raw = e.target.value.replace(/[^\d.]/g, "");
         const parts = raw.split(".");
@@ -1111,8 +1242,11 @@ function DecimalInput({
         onChangeNumber(Number(cleaned) || 0);
       }}
       onBlur={() => {
+        setFocused(false);
         const n = Number(text) || 0;
-        setText(String(Math.round((n + Number.EPSILON) * 100) / 100));
+        const rounded = Math.round((n + Number.EPSILON) * 100) / 100;
+        setText(String(rounded));
+        onChangeNumber(rounded);
       }}
     />
   );

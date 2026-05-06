@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /* src/components/ReceiptPreview.tsx */
 "use client";
 
@@ -162,13 +163,19 @@ export default function ReceiptPreview() {
 
   const receiptItems = useMemo(
     () =>
-      (session.items ?? []).map((it) => ({
-        id: it.id,
-        name: it.name?.trim() || "Unnamed item",
-        qty: Number(it.qty) || 0,
-        unitPrice: Number(it.unitPrice) || 0,
-        lineTotal: (Number(it.unitPrice) || 0) * (Number(it.qty) || 0),
-      })),
+      session.items.map((it) => {
+        const placeholderName = (it as any).placeholderName as string | undefined;
+        const cleanName = String(it.name ?? "").trim();
+
+        return {
+          id: it.id,
+          name: cleanName || placeholderName || "Expense",
+          isPlaceholder: !cleanName && !!placeholderName,
+          qty: it.qty || 0,
+          unitPrice: it.unitPrice || 0,
+          lineTotal: (it.unitPrice || 0) * (it.qty || 0),
+        };
+      }),
     [session.items]
   );
 
@@ -297,7 +304,7 @@ export default function ReceiptPreview() {
                         receiptItems.map((i) => (
                           <div key={i.id}>
                             <div className="flex justify-between gap-3">
-                              <span className="max-w-[70%] truncate font-medium">{i.name}</span>
+                              <span className={i.isPlaceholder ? "text-zinc-400" : "text-zinc-900"}>{i.name}</span>
                               <span className="shrink-0 font-semibold">
                                 {peso(i.lineTotal)}
                               </span>

@@ -134,7 +134,7 @@ export const KKB_TEMPLATES: KkbTemplate[] = [
     defaultName: "KKB split",
     defaultLocation: "Custom",
     accent: "zinc",
-    starterItems: [{ name: "Item 1", hint: "Rename this to your shared expense" }],
+    starterItems: [{ name: "Item name", hint: "Type the shared expense" }],
   },
 ];
 
@@ -168,19 +168,34 @@ export function makeKkbSession(input: {
   const people =
     input.people?.map((p, index) => ({
       id: cleanId(p.id ?? `p_${index + 1}`, `p_${index + 1}`),
-      name: p.name || `Person ${index + 1}`,
+
+      /*
+        Keep real group member names.
+        For manually created people, SplitProvider still controls the default.
+      */
+      name: p.name || "",
       isPWD: !!p.isPWD,
     })) ?? [];
 
   return {
     people,
+
+    /*
+      Important:
+      name is intentionally blank.
+      placeholderName is the gray guide text shown in the editor.
+      This means users do not need to delete "Flight / fare" before typing.
+    */
     items: starterItems.map((item, index) => ({
       id: makeItemId(input.purpose ?? "custom", index),
-      name: item.name,
+      name: "",
+      placeholderName: item.name,
+      hint: item.hint,
       qty: 1,
       unitPrice: 0,
       assignedPersonIds: [],
-    })),
+    })) as unknown as SplitSession["items"],
+
     payments: [],
     meta: {
       groupName: input.title || template.defaultName,

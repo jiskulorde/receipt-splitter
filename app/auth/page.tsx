@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabaseBrowser } from "@/src/lib/supabase/client";
 
+
 type AuthMode = "register" | "login";
 type MessageTone = "neutral" | "success" | "error";
 
@@ -63,7 +64,7 @@ export default function AuthPage() {
 
       if (nextUser) {
         await ensureProfileFromUser(nextUser);
-        router.replace("/");
+        router.replace("/account");
       }
     }
 
@@ -77,7 +78,7 @@ export default function AuthPage() {
 
       if (nextUser) {
         await ensureProfileFromUser(nextUser);
-        router.replace("/");
+        router.replace("/account");
       }
     });
 
@@ -174,7 +175,7 @@ export default function AuthPage() {
 
     if (data.session) {
       setUser(data.user);
-      router.replace("/");
+      router.replace("/account");
       return;
     }
 
@@ -201,7 +202,7 @@ export default function AuthPage() {
     }
 
     setUser(data.user);
-    router.replace("/");
+    router.replace("/account");
   }
 
   async function onSubmit() {
@@ -313,6 +314,13 @@ export default function AuthPage() {
               >
                 Sign in
               </button>
+
+              <Link
+                href="/auth/forgot"
+                className="text-sm font-semibold text-teal-700 hover:text-teal-800"
+              >
+                Forgot password?
+              </Link>
             </div>
 
             <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4 dark:border-white/10 dark:bg-zinc-950/40">
