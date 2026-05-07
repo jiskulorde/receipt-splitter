@@ -3,16 +3,21 @@
 
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSplit } from "@/src/components/SplitProvider";
 import { getCollection } from "@/src/lib/collections";
-import { getGroup, listGroupMembers, type KkbGroupMember } from "@/src/lib/groups";
+import {
+  getGroup,
+  listGroupMembers,
+  type KkbGroupMember,
+} from "@/src/lib/groups";
 import { getPurposeOption, type SplitPurpose } from "@/src/lib/purposes";
 import {
   getTemplateByPurpose,
   makeKkbSession,
 } from "@/src/lib/sessionTemplates";
 import { readSplitStartContextFromUrl } from "@/src/lib/splitContext";
+import type { SplitSession } from "@/src/lib/types";
 
 function displayMemberName(m: KkbGroupMember, index: number) {
   return (
@@ -36,10 +41,17 @@ export default function SplitBootstrapper({
   children: React.ReactNode;
 }) {
   const { setSession } = useSplit();
+
+  const booted = useRef(false);
+
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("Preparing split...");
 
   useEffect(() => {
+    if (booted.current) return;
+
+    booted.current = true;
+
     let alive = true;
 
     async function boot() {
@@ -47,9 +59,8 @@ export default function SplitBootstrapper({
 
       const sp = new URLSearchParams(window.location.search);
 
-      // If opening an encoded split, SplitProvider already handles ?s=...
       if (sp.get("s")) {
-        setLoading(false);
+        if (alive) setLoading(false);
         return;
       }
 
@@ -62,7 +73,7 @@ export default function SplitBootstrapper({
         let people: Array<{ id?: string; name: string; isPWD?: boolean }> = [];
 
         if (ctx.collectionId) {
-          setMessage("Loading collection...");
+          setMessage("Loading folder...");
 
           const collection = await getCollection(ctx.collectionId);
           const collectionPurpose = getPurposeOption(collection.purpose);
@@ -93,8 +104,9 @@ export default function SplitBootstrapper({
           people = members.map(memberToPerson);
         } else {
           const purposeInfo = getPurposeOption(purpose);
+
           title = purposeInfo.label;
-          location = "Guest split";
+          location = "Personal split";
         }
 
         const template = getTemplateByPurpose(purpose);
@@ -107,9 +119,18 @@ export default function SplitBootstrapper({
           starterItems: template.starterItems,
         });
 
+        const nextSession = {
+          ...session,
+          meta: {
+            ...(session.meta ?? {}),
+            purpose,
+            subtype: ctx.subtype ?? null,
+          },
+        } as unknown as SplitSession;
+
         if (!alive) return;
 
-        setSession(session);
+        setSession(nextSession);
       } catch (e: any) {
         if (!alive) return;
         setMessage(e?.message || "Could not prepare split.");

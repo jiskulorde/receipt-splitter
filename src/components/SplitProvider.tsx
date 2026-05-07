@@ -1,9 +1,15 @@
-/* eslint-disable react-hooks/set-state-in-effect */
-
 /* src/components/SplitProvider.tsx */
 "use client";
 
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+/* eslint-disable react-hooks/set-state-in-effect */
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import type {
   ChangeHandling,
   Item,
@@ -73,20 +79,29 @@ function normalizeSession(input: SplitSession): SplitSession {
     meta: input.meta ?? { groupName: "", location: "" },
     charges: input.charges ?? { serviceAmount: 0, vatAmount: 0 },
     pwdScope: input.pwdScope ?? "person",
-    discountOverrides: input.discountOverrides ?? { lessVatExempt: 0, lessPwdDiscount: 0 },
-    changeHandling: input.changeHandling ?? { mode: "auto", receiverId: undefined, allocations: {} },
+    discountOverrides: input.discountOverrides ?? {
+      lessVatExempt: 0,
+      lessPwdDiscount: 0,
+    },
+    changeHandling: input.changeHandling ?? {
+      mode: "auto",
+      receiverId: undefined,
+      allocations: {},
+    },
   };
 }
 
 export function SplitProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSessionState] = useState<SplitSession>(() => createInitialSession());
+  const [session, setSessionState] = useState<SplitSession>(() =>
+    createInitialSession()
+  );
 
-  // Load from share link (?s=...) on first mount.
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const sp = new URLSearchParams(window.location.search);
     const s = sp.get("s");
+
     if (!s) return;
 
     const decoded = decodeSessionFromParam(s);
@@ -95,8 +110,13 @@ export function SplitProvider({ children }: { children: React.ReactNode }) {
     setSessionState(normalizeSession(decoded));
   }, []);
 
-  const setSession = (next: SplitSession) => setSessionState(normalizeSession(next));
-  const resetSession = () => setSessionState(createInitialSession());
+  const setSession = useCallback((next: SplitSession) => {
+    setSessionState(normalizeSession(next));
+  }, []);
+
+  const resetSession = useCallback(() => {
+    setSessionState(createInitialSession());
+  }, []);
 
   const api: SplitContextValue = useMemo(
     () => ({
@@ -116,7 +136,11 @@ export function SplitProvider({ children }: { children: React.ReactNode }) {
           ...s,
           people: [
             ...s.people,
-            { id: uid("p"), name: `Person ${s.people.length + 1}`, isPWD: false },
+            {
+              id: uid("p"),
+              name: `Person ${s.people.length + 1}`,
+              isPWD: false,
+            },
           ],
         }));
       },
@@ -124,7 +148,9 @@ export function SplitProvider({ children }: { children: React.ReactNode }) {
       updatePerson: (id, patch) => {
         setSessionState((s) => ({
           ...s,
-          people: s.people.map((p) => (p.id === id ? { ...p, ...patch } : p)),
+          people: s.people.map((p) =>
+            p.id === id ? { ...p, ...patch } : p
+          ),
         }));
       },
 
@@ -135,19 +161,29 @@ export function SplitProvider({ children }: { children: React.ReactNode }) {
 
           const nextItems = s.items.map((it) => ({
             ...it,
-            assignedPersonIds: (it.assignedPersonIds ?? []).filter((pid) => pid !== id),
+            assignedPersonIds: (it.assignedPersonIds ?? []).filter(
+              (pid) => pid !== id
+            ),
           }));
 
           const nextPayments = (s.payments ?? []).map((pay) =>
             pay.payerId === id ? { ...pay, payerId: fallbackPayerId } : pay
           );
 
-          const prevCH = s.changeHandling ?? { mode: "auto", allocations: {} };
+          const prevCH = s.changeHandling ?? {
+            mode: "auto",
+            allocations: {},
+          };
+
           const nextReceiverId =
-            prevCH.receiverId === id ? fallbackPayerId || undefined : prevCH.receiverId;
+            prevCH.receiverId === id
+              ? fallbackPayerId || undefined
+              : prevCH.receiverId;
 
           const nextAllocations = Object.fromEntries(
-            Object.entries(prevCH.allocations ?? {}).filter(([pid]) => pid !== id)
+            Object.entries(prevCH.allocations ?? {}).filter(
+              ([pid]) => pid !== id
+            )
           );
 
           return {
@@ -183,7 +219,9 @@ export function SplitProvider({ children }: { children: React.ReactNode }) {
       updateItem: (id, patch) => {
         setSessionState((s) => ({
           ...s,
-          items: s.items.map((it) => (it.id === id ? { ...it, ...patch } : it)),
+          items: s.items.map((it) =>
+            it.id === id ? { ...it, ...patch } : it
+          ),
         }));
       },
 
@@ -216,14 +254,20 @@ export function SplitProvider({ children }: { children: React.ReactNode }) {
       setServiceAmount: (amount) => {
         setSessionState((s) => ({
           ...s,
-          charges: { ...s.charges, serviceAmount: money(Number(amount) || 0) },
+          charges: {
+            ...s.charges,
+            serviceAmount: money(Number(amount) || 0),
+          },
         }));
       },
 
       setVatAmount: (amount) => {
         setSessionState((s) => ({
           ...s,
-          charges: { ...s.charges, vatAmount: money(Number(amount) || 0) },
+          charges: {
+            ...s.charges,
+            vatAmount: money(Number(amount) || 0),
+          },
         }));
       },
 
@@ -235,7 +279,10 @@ export function SplitProvider({ children }: { children: React.ReactNode }) {
         setSessionState((s) => ({
           ...s,
           discountOverrides: {
-            ...(s.discountOverrides ?? { lessVatExempt: 0, lessPwdDiscount: 0 }),
+            ...(s.discountOverrides ?? {
+              lessVatExempt: 0,
+              lessPwdDiscount: 0,
+            }),
             lessVatExempt: money(Number(amount) || 0),
           },
         }));
@@ -245,7 +292,10 @@ export function SplitProvider({ children }: { children: React.ReactNode }) {
         setSessionState((s) => ({
           ...s,
           discountOverrides: {
-            ...(s.discountOverrides ?? { lessVatExempt: 0, lessPwdDiscount: 0 }),
+            ...(s.discountOverrides ?? {
+              lessVatExempt: 0,
+              lessPwdDiscount: 0,
+            }),
             lessPwdDiscount: money(Number(amount) || 0),
           },
         }));
@@ -255,15 +305,26 @@ export function SplitProvider({ children }: { children: React.ReactNode }) {
         setSessionState((s) => {
           const payerId = s.people[0]?.id ?? "";
           const method: PaymentMethod = "cash";
-          const pay: Payment = { id: uid("pay"), payerId, amount: 0, method };
-          return { ...s, payments: [...(s.payments ?? []), pay] };
+          const pay: Payment = {
+            id: uid("pay"),
+            payerId,
+            amount: 0,
+            method,
+          };
+
+          return {
+            ...s,
+            payments: [...(s.payments ?? []), pay],
+          };
         });
       },
 
       updatePayment: (id, patch) => {
         setSessionState((s) => ({
           ...s,
-          payments: (s.payments ?? []).map((p) => (p.id === id ? { ...p, ...patch } : p)),
+          payments: (s.payments ?? []).map((p) =>
+            p.id === id ? { ...p, ...patch } : p
+          ),
         }));
       },
 
@@ -308,7 +369,7 @@ export function SplitProvider({ children }: { children: React.ReactNode }) {
         }));
       },
     }),
-    [session]
+    [session, setSession, resetSession]
   );
 
   return <SplitContext.Provider value={api}>{children}</SplitContext.Provider>;
@@ -316,6 +377,10 @@ export function SplitProvider({ children }: { children: React.ReactNode }) {
 
 export function useSplit() {
   const ctx = useContext(SplitContext);
-  if (!ctx) throw new Error("useSplit must be used inside SplitProvider");
+
+  if (!ctx) {
+    throw new Error("useSplit must be used inside SplitProvider");
+  }
+
   return ctx;
 }

@@ -4,8 +4,6 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import TopBar from "@/src/components/TopBar";
 import ReceiptPreview from "@/src/components/ReceiptPreview";
 import EditorPanel from "@/src/components/EditorPanel";
 import { useSplit } from "@/src/components/SplitProvider";
@@ -20,25 +18,32 @@ import {
   upsertLocalSave,
 } from "@/src/lib/sessionStore";
 import type { SplitSession } from "@/src/lib/types";
+import SplitTemplatePicker from "@/src/components/SplitTemplatePicker";
 
 function peso(n: number) {
   return `₱${(Number(n) || 0).toFixed(2)}`;
 }
 
+function navigateTo(href: string) {
+  if (typeof window === "undefined") return;
+  window.location.assign(href);
+}
+
 export default function CloudSplitWorkspace() {
-  const router = useRouter();
   const supabase = supabaseBrowser();
   const { session } = useSplit();
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [ctx, setCtx] = useState(() => readSplitStartContextFromUrl());
   const [signedIn, setSignedIn] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
   const calc = useMemo(() => calcReceipt(session), [session]);
 
-  const purpose = getPurposeOption(ctx.purpose);
+  const currentPurpose = ((session.meta as any)?.purpose || ctx.purpose) as any;
+  const purpose = getPurposeOption(currentPurpose);
   const peopleCount = session.people?.length ?? 0;
   const itemCount = session.items?.length ?? 0;
   const paymentCount = session.payments?.length ?? 0;
@@ -49,9 +54,7 @@ export default function CloudSplitWorkspace() {
     ? `/collections/${ctx.collectionId}`
     : ctx.groupId
       ? `/groups/${ctx.groupId}`
-      : signedIn
-        ? "/account"
-        : "/";
+      : "/";
 
   const destination =
     ctx.collectionName ||
@@ -61,8 +64,8 @@ export default function CloudSplitWorkspace() {
 
   const destinationSub = ctx.collectionId
     ? ctx.groupName
-      ? `${ctx.groupName} collection`
-      : "Collection"
+      ? `${ctx.groupName} folder`
+      : "Folder"
     : ctx.groupId
       ? "Group split"
       : signedIn
@@ -70,7 +73,7 @@ export default function CloudSplitWorkspace() {
         : "Guest mode";
 
   const saveLabel = ctx.collectionId
-    ? "Save to collection"
+    ? "Save to folder"
     : ctx.groupId
       ? "Save to group"
       : signedIn
@@ -85,9 +88,15 @@ export default function CloudSplitWorkspace() {
     let alive = true;
 
     async function loadUser() {
-      const { data } = await supabase.auth.getUser();
-      if (!alive) return;
-      setSignedIn(!!data.user);
+      try {
+        const { data } = await supabase.auth.getUser();
+
+        if (!alive) return;
+
+        setSignedIn(!!data.user);
+      } finally {
+        if (alive) setAuthChecked(true);
+      }
     }
 
     loadUser();
@@ -96,6 +105,7 @@ export default function CloudSplitWorkspace() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, authSession) => {
       setSignedIn(!!authSession?.user);
+      setAuthChecked(true);
     });
 
     return () => {
@@ -129,6 +139,11 @@ export default function CloudSplitWorkspace() {
   async function handleSave() {
     setMessage("");
 
+    if (!authChecked) {
+      setMessage("Checking your account. Please try again in a second.");
+      return;
+    }
+
     if (!canSave) {
       setMessage("Add at least one person or item before saving.");
       return;
@@ -137,7 +152,7 @@ export default function CloudSplitWorkspace() {
     const isGroupOrCollection = !!ctx.groupId || !!ctx.collectionId;
 
     if (isGroupOrCollection && !signedIn) {
-      setMessage("Please sign in to save to a group or collection.");
+      setMessage("Please sign in to save to a group or folder.");
       return;
     }
 
@@ -151,7 +166,7 @@ export default function CloudSplitWorkspace() {
         await createCloudSave({
           title: finalTitle || "KKB Split",
           session: session as SplitSession,
-          purpose: ctx.purpose,
+          purpose: currentPurpose,
           collectionId: ctx.collectionId || null,
           groupId: ctx.groupId || null,
           emoji: purpose.emoji,
@@ -167,7 +182,7 @@ export default function CloudSplitWorkspace() {
         });
       }
 
-      router.replace(backHref);
+      navigateTo(backHref);
     } catch (e: any) {
       setMessage(e?.message || "Could not save this split.");
     } finally {
@@ -176,21 +191,19 @@ export default function CloudSplitWorkspace() {
   }
 
   function handleCancel() {
-    router.push(backHref);
+    navigateTo(backHref);
   }
 
   return (
     <div className="min-h-screen bg-[#f6f7f4] text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
-      <TopBar />
-
       <main className="mx-auto max-w-[1480px] px-3 py-3 pb-36 sm:px-6 lg:px-8 xl:pb-6">
-        <div className="mb-3 flex items-center justify-end gap-3 xl:mb-4 xl:justify-between">
+        <div className="mb-3 flex items-center justify-between gap-3 xl:mb-4">
           <button
             type="button"
             onClick={handleCancel}
-            className="hidden items-center gap-2 rounded-2xl border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-100 xl:inline-flex"
+            className="inline-flex items-center gap-2 rounded-2xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-100 sm:px-4 sm:text-sm"
           >
-            ← Cancel
+            ← Back
           </button>
 
           <div className="text-right">
@@ -234,7 +247,6 @@ export default function CloudSplitWorkspace() {
                 <MiniContextStat label="Due" value={peso(calc.totalDue)} />
               </div>
 
-              {/* Desktop only. Mobile uses the bottom sticky action bar. */}
               <div className="hidden grid-cols-2 gap-2 xl:grid">
                 <button
                   type="button"
@@ -247,7 +259,7 @@ export default function CloudSplitWorkspace() {
                 <button
                   type="button"
                   onClick={handleSave}
-                  disabled={saving}
+                  disabled={saving || !authChecked}
                   className="rounded-2xl bg-teal-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {saving ? "Saving..." : saveLabel}
@@ -256,6 +268,10 @@ export default function CloudSplitWorkspace() {
             </div>
           </div>
         </section>
+
+        <div className="mb-3 sm:mb-4">
+          <SplitTemplatePicker mode="cloud" compact />
+        </div>
 
         {message ? (
           <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-100 sm:mb-4">
@@ -278,7 +294,6 @@ export default function CloudSplitWorkspace() {
         </section>
       </main>
 
-      {/* Mobile sticky bottom action bar */}
       <div className="fixed inset-x-3 bottom-3 z-40 xl:hidden">
         <div className="overflow-hidden rounded-[1.6rem] border border-zinc-200 bg-white/95 shadow-[0_20px_60px_-25px_rgba(15,23,42,0.65)] backdrop-blur-xl dark:border-white/10 dark:bg-zinc-950/95">
           <div className="flex items-center gap-3 p-3">
@@ -325,7 +340,7 @@ export default function CloudSplitWorkspace() {
             <button
               type="button"
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || !authChecked}
               className="rounded-2xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
             >
               {saving ? "Saving..." : "Save"}
@@ -334,7 +349,6 @@ export default function CloudSplitWorkspace() {
         </div>
       </div>
 
-      {/* Mobile editor drawer */}
       <div
         className={[
           "fixed inset-0 z-50 xl:hidden",
@@ -342,12 +356,14 @@ export default function CloudSplitWorkspace() {
         ].join(" ")}
         aria-hidden={!editorOpen}
       >
-        <div
+        <button
+          type="button"
           className={[
             "absolute inset-0 bg-zinc-950/40 backdrop-blur-sm transition-opacity",
             editorOpen ? "opacity-100" : "opacity-0",
           ].join(" ")}
           onClick={() => setEditorOpen(false)}
+          aria-label="Close editor"
         />
 
         <div

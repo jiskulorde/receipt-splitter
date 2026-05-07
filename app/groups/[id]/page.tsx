@@ -267,22 +267,24 @@ export default function GroupPage() {
 
         <section className="mb-3 overflow-hidden rounded-[1.45rem] border border-zinc-200 bg-white shadow-sm sm:mb-5 sm:rounded-[2rem]">
           <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_420px]">
-            <div className="bg-gradient-to-br from-teal-600 via-teal-600 to-cyan-700 px-3.5 py-3.5 text-white sm:px-6 sm:py-6">
-              <div className="flex items-start gap-3">
+            <div className="bg-gradient-to-br from-teal-600 via-teal-600 to-cyan-700 px-4 py-5 text-white sm:px-6 sm:py-6">
+              <div className="flex items-center gap-4 sm:items-start">
                 <GroupHeroAvatar group={group} />
 
                 <div className="min-w-0 flex-1">
-                  <h1 className="truncate text-lg font-bold leading-tight sm:text-3xl">
+                  <h1 className="truncate text-2xl font-bold leading-tight sm:text-3xl">
                     {group?.name ?? "Group"}
                   </h1>
-                  <p className="mt-1 truncate text-[11px] text-teal-50/90 sm:text-sm">
-                    {group?.description || "Members, folders, and shared history."}
+
+                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-teal-50/95 sm:text-sm">
+                    {(group as any)?.description ||
+                      "Members, folders, and shared history."}
                   </p>
 
                   <button
                     type="button"
                     onClick={() => setGroupEditorOpen(true)}
-                    className="mt-3 rounded-2xl bg-white/15 px-3 py-2 text-xs font-semibold text-white ring-1 ring-white/25 transition hover:bg-white/20"
+                    className="mt-3 rounded-2xl bg-white/15 px-4 py-2 text-xs font-semibold text-white ring-1 ring-white/25 transition hover:bg-white/20"
                   >
                     Edit group
                   </button>
@@ -306,13 +308,8 @@ export default function GroupPage() {
 
         <div className="grid gap-3 lg:gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
           <section className="space-y-3 sm:space-y-5">
-            <GroupWorkspaceSwitcher
-              groupId={groupId}
-              groupName={group?.name ?? "Group"}
-              members={members}
-            />
-
-            <div className="xl:hidden">
+            {/* Mobile order: folders first, then quick add, then split starter */}
+            <div className="space-y-3 xl:hidden">
               <MobileSectionSwitch
                 tab={mobileTab}
                 setTab={setMobileTab}
@@ -320,9 +317,7 @@ export default function GroupPage() {
                 historyCount={groupSaves.length}
                 membersCount={members.length}
               />
-            </div>
 
-            <div className="xl:hidden">
               {mobileTab === "collections" ? (
                 <GroupCollectionsSection
                   collections={groupCollections}
@@ -347,9 +342,7 @@ export default function GroupPage() {
               {mobileTab === "members" ? (
                 <MembersSection members={members} compact />
               ) : null}
-            </div>
 
-            <div className="xl:hidden">
               <MobileQuickActionsCard
                 open={mobileQuickActionsOpen}
                 setOpen={setMobileQuickActionsOpen}
@@ -370,9 +363,23 @@ export default function GroupPage() {
                 handleAddMember={handleAddMember}
                 handleCreateGroupCollection={handleCreateGroupCollection}
               />
+
+              <GroupWorkspaceSwitcher
+                groupId={groupId}
+                groupName={group?.name ?? "Group"}
+                members={members}
+                mobileCompact
+              />
             </div>
 
+            {/* Desktop order: workspace first, then folders/history */}
             <div className="hidden space-y-5 xl:block">
+              <GroupWorkspaceSwitcher
+                groupId={groupId}
+                groupName={group?.name ?? "Group"}
+                members={members}
+              />
+
               <GroupCollectionsSection
                 collections={groupCollections}
                 saves={groupSaves}
@@ -477,17 +484,19 @@ export default function GroupPage() {
 }
 
 function GroupHeroAvatar({ group }: { group: KkbGroup | null }) {
+  const anyGroup = group as any;
+
   return (
-    <div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-2xl bg-white text-lg text-teal-700 shadow-sm sm:h-16 sm:w-16 sm:text-2xl">
-      {group?.photo_url ? (
+    <div className="grid h-[72px] w-[72px] shrink-0 place-items-center overflow-hidden rounded-[1.35rem] bg-white text-3xl text-teal-700 shadow-sm ring-1 ring-white/40 sm:h-20 sm:w-20 sm:rounded-[1.6rem] sm:text-4xl">
+      {anyGroup?.photo_url ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={group.photo_url}
-          alt={group.name}
+          src={anyGroup.photo_url}
+          alt={group?.name ?? "Group"}
           className="h-full w-full object-cover"
         />
       ) : (
-        group?.emoji || "👥"
+        anyGroup?.emoji || "👥"
       )}
     </div>
   );
@@ -513,7 +522,7 @@ function GroupCollectionsSection({
   return (
     <SectionCard
       title="Group folders"
-      subtitle="Shared folders everyone in this group can open."
+      subtitle="Open shared folders and saved memories."
       compact={compact}
       action={
         <SectionActions
@@ -568,7 +577,7 @@ function GroupCollectionsSection({
                       className={[
                         "grid shrink-0 place-items-center rounded-2xl bg-teal-600 text-white",
                         compact
-                          ? "h-9 w-9 text-sm"
+                          ? "h-10 w-10 text-base"
                           : "h-10 w-10 text-lg sm:h-12 sm:w-12 sm:text-xl",
                       ].join(" ")}
                     >
@@ -982,7 +991,7 @@ function MobileQuickActionsCard({
   return (
     <SectionCard
       title="Quick add"
-      subtitle="Invite members or create folders only when needed."
+      subtitle="Add only when needed."
       compact
       action={
         <button
@@ -1004,7 +1013,7 @@ function MobileQuickActionsCard({
             }}
             className="rounded-2xl border border-zinc-200 bg-[#fbfbf8] px-3 py-2.5 text-xs font-semibold text-zinc-800 transition hover:bg-white"
           >
-            Member
+            Add member
           </button>
 
           <button
@@ -1015,7 +1024,7 @@ function MobileQuickActionsCard({
             }}
             className="rounded-2xl border border-zinc-200 bg-[#fbfbf8] px-3 py-2.5 text-xs font-semibold text-zinc-800 transition hover:bg-white"
           >
-            Folder
+            Add folder
           </button>
         </div>
       ) : (

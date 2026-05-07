@@ -1,11 +1,6 @@
 /* app/page.tsx */
-import { SplitProvider } from "@/src/components/SplitProvider";
-import MainSplitWorkspace from "@/src/components/MainSplitWorkspace";
+import HomeGate from "@/src/components/HomeGate";
 
 export default function Home() {
-  return (
-    <SplitProvider>
-      <MainSplitWorkspace />
-    </SplitProvider>
-  );
+  return <HomeGate />;
 }

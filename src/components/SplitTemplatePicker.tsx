@@ -12,12 +12,14 @@ import {
   type TemplateStarterItem,
 } from "@/src/lib/sessionTemplates";
 import type { SplitPurpose } from "@/src/lib/purposes";
+import type { SplitSession } from "@/src/lib/types";
+
+type PickerMode = "guest" | "cloud";
 
 type SportSubtype = {
   key: string;
   title: string;
   emoji: string;
-  available: boolean;
   description: string;
   examples: string[];
   defaultName: string;
@@ -30,10 +32,8 @@ const SPORTS: SportSubtype[] = [
     key: "pickleball",
     title: "Pickleball",
     emoji: "🏓",
-    available: true,
-    description:
-      "Court collection, player list, paid/unpaid status, and optional entrance tracking.",
-    examples: ["Court fee", "Open play", "Ball", "Paddle rental"],
+    description: "Court fee, open play, entrance, and game extras.",
+    examples: ["Court fee", "Open play", "Entrance", "Ball"],
     defaultName: "Pickleball split",
     defaultLocation: "Court / open play",
     starterItems: [
@@ -42,16 +42,14 @@ const SPORTS: SportSubtype[] = [
       { name: "Ball / pickleball", hint: "Shared ball or replacement ball" },
       { name: "Paddle rental", hint: "Borrowed paddle or racket rental" },
       { name: "Drinks / snacks", hint: "Water, sports drink, snacks after game" },
-      { name: "Other pickleball fees", hint: "Coach, parking, tournament, extras" },
+      { name: "Other sports fees", hint: "Coach, parking, tournament, extras" },
     ],
   },
   {
     key: "badminton",
     title: "Badminton",
     emoji: "🏸",
-    available: false,
-    description:
-      "Starter rows for court fee, shuttlecock, racket rental, and game fees.",
+    description: "Court fee, shuttlecock, racket rental, and game fees.",
     examples: ["Court fee", "Shuttlecock", "Racket rental", "Entrance"],
     defaultName: "Badminton split",
     defaultLocation: "Badminton court",
@@ -68,9 +66,7 @@ const SPORTS: SportSubtype[] = [
     key: "bowling",
     title: "Bowling",
     emoji: "🎳",
-    available: false,
-    description:
-      "Starter rows for lane fee, shoe rental, food, and shared game costs.",
+    description: "Lane fee, shoe rental, food, and extra games.",
     examples: ["Lane fee", "Shoe rental", "Food", "Extra game"],
     defaultName: "Bowling split",
     defaultLocation: "Bowling alley",
@@ -85,9 +81,7 @@ const SPORTS: SportSubtype[] = [
     key: "billiards",
     title: "Billiards",
     emoji: "🎱",
-    available: false,
-    description:
-      "Starter rows for table rental, food, drinks, and shared game costs.",
+    description: "Table rental, food, drinks, and extra time.",
     examples: ["Table rental", "Food", "Drinks", "Extra time"],
     defaultName: "Billiards split",
     defaultLocation: "Billiards hall",
@@ -101,9 +95,7 @@ const SPORTS: SportSubtype[] = [
     key: "basketball",
     title: "Basketball",
     emoji: "🏀",
-    available: false,
-    description:
-      "Starter rows for court rental, referee fee, drinks, and shared team costs.",
+    description: "Court rental, referee fee, drinks, and team costs.",
     examples: ["Court rental", "Referee", "Water", "Jerseys"],
     defaultName: "Basketball split",
     defaultLocation: "Basketball court",
@@ -140,13 +132,26 @@ function emitGuestPickleballStarted(detail: {
   );
 }
 
-function cleanUrl() {
+function cleanOnlyShareParam() {
   if (typeof window === "undefined") return;
-  window.history.replaceState(null, "", window.location.pathname);
+
+  const url = new URL(window.location.href);
+
+  url.searchParams.delete("s");
+
+  const next =
+    url.searchParams.toString().length > 0
+      ? `${url.pathname}?${url.searchParams.toString()}`
+      : url.pathname;
+
+  window.history.replaceState(null, "", next);
 }
 
 function getTemplate(purpose: SplitPurpose) {
-  return KKB_TEMPLATES.find((template) => template.purpose === purpose) ?? KKB_TEMPLATES[0];
+  return (
+    KKB_TEMPLATES.find((template) => template.purpose === purpose) ??
+    KKB_TEMPLATES[0]
+  );
 }
 
 function getSport(key: string | null) {
@@ -163,10 +168,22 @@ function iconTone(tone: KkbTemplate["accent"]) {
   return "bg-zinc-200 text-zinc-800";
 }
 
-export default function SplitTemplatePicker() {
+export default function SplitTemplatePicker({
+  mode = "guest",
+  compact = false,
+}: {
+  mode?: PickerMode;
+  compact?: boolean;
+}) {
   const { session, setSession } = useSplit() as any;
 
-  const [purpose, setPurpose] = useState<SplitPurpose>("restaurant");
+  const currentMetaPurpose = (session?.meta as any)?.purpose as
+    | SplitPurpose
+    | undefined;
+
+  const [purpose, setPurpose] = useState<SplitPurpose>(
+    currentMetaPurpose || "restaurant"
+  );
   const [sportKey, setSportKey] = useState("pickleball");
 
   const selectedTemplate = useMemo(() => getTemplate(purpose), [purpose]);
@@ -180,17 +197,28 @@ export default function SplitTemplatePicker() {
     }
   }
 
+  function setSessionWithMeta(next: SplitSession, nextPurpose: SplitPurpose) {
+    setSession?.({
+      ...next,
+      meta: {
+        ...(next.meta ?? {}),
+        purpose: nextPurpose,
+        subtype: nextPurpose === "sports" ? sportKey : null,
+      },
+    } as unknown as SplitSession);
+  }
+
   function startTemplate() {
     const keepPeople = session?.people ?? [];
 
-    if (purpose === "sports" && selectedSport.key === "pickleball") {
+    if (mode === "guest" && purpose === "sports" && selectedSport.key === "pickleball") {
       emitGuestPickleballStarted({
         subtype: selectedSport.key,
         title: selectedSport.title,
         emoji: selectedSport.emoji,
       });
 
-      cleanUrl();
+      cleanOnlyShareParam();
 
       window.setTimeout(() => {
         document.getElementById("guest-pickleball-workspace")?.scrollIntoView({
@@ -211,17 +239,10 @@ export default function SplitTemplatePicker() {
         starterItems: selectedSport.starterItems,
       });
 
-      setSession?.({
-        ...next,
-        meta: {
-          ...(next.meta ?? {}),
-          purpose: "sports",
-          subtype: selectedSport.key,
-        },
-      });
+      setSessionWithMeta(next, "sports");
 
       emitNormalSplitStarted();
-      cleanUrl();
+      cleanOnlyShareParam();
 
       window.setTimeout(() => {
         emitSetTab(keepPeople.length > 0 ? "items" : "people");
@@ -231,14 +252,14 @@ export default function SplitTemplatePicker() {
       return;
     }
 
-    setSession?.(
-      makeTemplateSession(selectedTemplate, {
-        people: keepPeople,
-      })
-    );
+    const next = makeTemplateSession(selectedTemplate, {
+      people: keepPeople,
+    });
+
+    setSessionWithMeta(next, purpose);
 
     emitNormalSplitStarted();
-    cleanUrl();
+    cleanOnlyShareParam();
 
     window.setTimeout(() => {
       emitSetTab(keepPeople.length > 0 ? "items" : "people");
@@ -248,11 +269,8 @@ export default function SplitTemplatePicker() {
 
   const detailTitle =
     purpose === "sports"
-      ? `${selectedSport.title} · Sports collection`
+      ? `${selectedSport.title} split`
       : selectedTemplate.title;
-
-  const detailDescription =
-    purpose === "sports" ? selectedSport.description : selectedTemplate.description;
 
   const detailExamples =
     purpose === "sports"
@@ -260,40 +278,41 @@ export default function SplitTemplatePicker() {
       : selectedTemplate.starterItems.map((item) => item.name);
 
   const startLabel =
-    purpose === "sports" && selectedSport.key === "pickleball"
-      ? "Use Pickleball tracker"
-      : purpose === "sports"
-        ? `Use ${selectedSport.title} rows`
-        : `Use ${selectedTemplate.shortTitle} template`;
+    mode === "guest" && purpose === "sports" && selectedSport.key === "pickleball"
+      ? "Open tracker"
+      : "Use template";
 
   return (
     <section className="space-y-3">
-      <div className="rounded-[1.75rem] border border-zinc-200 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-white/[0.04] sm:p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+      <div
+        className={[
+          "border border-zinc-200 bg-white shadow-sm dark:border-white/10 dark:bg-white/[0.04]",
+          compact
+            ? "rounded-[1.35rem] p-3"
+            : "rounded-[1.75rem] p-3 sm:p-4",
+        ].join(" ")}
+      >
+        <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="inline-flex rounded-full bg-teal-100 px-3 py-1 text-[11px] font-semibold text-teal-800 dark:bg-teal-500/10 dark:text-teal-100">
+            <div className="inline-flex rounded-full bg-teal-100 px-2.5 py-1 text-[10px] font-semibold text-teal-800 dark:bg-teal-500/10 dark:text-teal-100">
               Templates
             </div>
 
-            <h2 className="mt-2 text-base font-bold text-zinc-900 dark:text-zinc-50 sm:text-lg">
-              What are you splitting?
+            <h2 className="mt-2 text-sm font-bold text-zinc-900 dark:text-zinc-50 sm:text-base">
+              Choose type
             </h2>
-
-            <p className="mt-1 max-w-2xl text-xs leading-5 text-zinc-600 dark:text-zinc-400 sm:text-sm">
-              Pick one template, then use it. Pickleball opens a session tracker below.
-            </p>
           </div>
 
           <button
             type="button"
             onClick={startTemplate}
-            className="w-full rounded-2xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 sm:w-auto"
+            className="shrink-0 rounded-2xl bg-teal-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-teal-700 sm:text-sm"
           >
             {startLabel}
           </button>
         </div>
 
-        <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-7">
+        <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-7">
           {KKB_TEMPLATES.map((template) => {
             const active = purpose === template.purpose;
 
@@ -303,7 +322,7 @@ export default function SplitTemplatePicker() {
                 type="button"
                 onClick={() => selectPurpose(template.purpose)}
                 className={[
-                  "rounded-[1.15rem] border px-2.5 py-3 text-center transition",
+                  "rounded-[1rem] border px-2 py-2.5 text-center transition sm:rounded-[1.15rem]",
                   active
                     ? "border-teal-300 bg-teal-50 ring-2 ring-teal-100 dark:border-teal-400/30 dark:bg-teal-500/10"
                     : "border-zinc-200 bg-[#fbfbf8] hover:border-teal-300 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10",
@@ -311,14 +330,14 @@ export default function SplitTemplatePicker() {
               >
                 <div
                   className={[
-                    "mx-auto grid h-9 w-9 place-items-center rounded-2xl text-base",
+                    "mx-auto grid h-8 w-8 place-items-center rounded-2xl text-sm",
                     iconTone(template.accent),
                   ].join(" ")}
                 >
                   {template.emoji}
                 </div>
 
-                <div className="mt-2 truncate text-[11px] font-bold text-zinc-900 dark:text-zinc-50 sm:text-xs">
+                <div className="mt-1.5 truncate text-[10px] font-bold text-zinc-900 dark:text-zinc-50 sm:text-[11px]">
                   {template.shortTitle}
                 </div>
               </button>
@@ -326,11 +345,11 @@ export default function SplitTemplatePicker() {
           })}
         </div>
 
-        <div className="mt-4 rounded-[1.3rem] border border-zinc-200 bg-[#fbfbf8] p-3 dark:border-white/10 dark:bg-white/5">
-          <div className="flex items-start gap-3">
+        <div className="mt-3 rounded-[1.15rem] border border-zinc-200 bg-[#fbfbf8] p-3 dark:border-white/10 dark:bg-white/5">
+          <div className="flex items-center gap-3">
             <div
               className={[
-                "grid h-10 w-10 shrink-0 place-items-center rounded-2xl text-lg",
+                "grid h-9 w-9 shrink-0 place-items-center rounded-2xl text-base",
                 purpose === "sports"
                   ? "bg-amber-100 text-amber-800"
                   : iconTone(selectedTemplate.accent),
@@ -340,19 +359,15 @@ export default function SplitTemplatePicker() {
             </div>
 
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-bold text-zinc-900 dark:text-zinc-50">
+              <div className="truncate text-sm font-bold text-zinc-900 dark:text-zinc-50">
                 {detailTitle}
               </div>
 
-              <div className="mt-1 text-xs leading-5 text-zinc-600 dark:text-zinc-400">
-                {detailDescription}
-              </div>
-
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {detailExamples.slice(0, 4).map((item) => (
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {detailExamples.slice(0, compact ? 3 : 4).map((item) => (
                   <span
                     key={item}
-                    className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-zinc-600 ring-1 ring-zinc-200 dark:bg-zinc-950/40 dark:text-zinc-300 dark:ring-white/10"
+                    className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-zinc-600 ring-1 ring-zinc-200 dark:bg-zinc-950/40 dark:text-zinc-300 dark:ring-white/10"
                   >
                     {item}
                   </span>
@@ -363,56 +378,38 @@ export default function SplitTemplatePicker() {
         </div>
 
         {purpose === "sports" ? (
-          <div className="mt-4 rounded-[1.3rem] border border-amber-100 bg-amber-50 p-3 dark:border-amber-500/20 dark:bg-amber-500/10">
-            <div>
-              <div className="text-sm font-bold text-amber-900 dark:text-amber-100">
-                Sport type
-              </div>
-              <div className="mt-0.5 text-xs text-amber-800 dark:text-amber-100/80">
-                Pickleball has its own tracker. Other sports use starter rows for now.
-              </div>
-            </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+            {SPORTS.map((sport) => {
+              const active = sportKey === sport.key;
 
-            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
-              {SPORTS.map((sport) => {
-                const active = sportKey === sport.key;
+              return (
+                <button
+                  key={sport.key}
+                  type="button"
+                  onClick={() => setSportKey(sport.key)}
+                  className={[
+                    "rounded-2xl border px-3 py-2 text-left transition",
+                    active
+                      ? "border-teal-300 bg-teal-50 ring-2 ring-teal-100"
+                      : "border-zinc-200 bg-white hover:border-teal-200 hover:bg-teal-50/40",
+                  ].join(" ")}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="grid h-7 w-7 place-items-center rounded-xl bg-white text-sm">
+                      {sport.emoji}
+                    </span>
 
-                return (
-                  <button
-                    key={sport.key}
-                    type="button"
-                    onClick={() => setSportKey(sport.key)}
-                    className={[
-                      "rounded-2xl border p-2.5 text-left transition",
-                      active
-                        ? "border-teal-300 bg-white ring-2 ring-teal-100"
-                        : "border-amber-200 bg-white/70 hover:bg-white",
-                    ].join(" ")}
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="grid h-8 w-8 place-items-center rounded-xl bg-amber-100 text-base">
-                        {sport.emoji}
-                      </div>
-
-                      <div className="min-w-0">
-                        <div className="truncate text-xs font-bold text-zinc-900 sm:text-sm">
-                          {sport.title}
-                        </div>
-                        <div className="text-[9px] font-semibold uppercase tracking-wide text-zinc-400">
-                          {sport.available ? "Tracker" : "Rows only"}
-                        </div>
+                    <div className="min-w-0">
+                      <div className="truncate text-xs font-bold text-zinc-900">
+                        {sport.title}
                       </div>
                     </div>
-                  </button>
-                );
-              })}
-            </div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         ) : null}
-
-        <div className="mt-3 rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-100 sm:text-xs">
-          Fill only what you need. Delete unused rows.
-        </div>
       </div>
     </section>
   );
